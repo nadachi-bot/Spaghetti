@@ -1,0 +1,3 @@
+-cp src
+-hl dist/server.hl
+-main server.Main

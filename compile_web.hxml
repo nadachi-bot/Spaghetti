@@ -1,0 +1,3 @@
+-cp src
+-js dist/web/app.js
+-main web.Main

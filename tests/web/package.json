@@ -1,0 +1,15 @@
+{
+  "name": "factorio-server-runner-web-tests",
+  "version": "1.0.0",
+  "description": "Puppeteer-based web integration tests for FactorioServerRunner",
+  "type": "module",
+  "scripts": {
+    "test": "node test_runner.js"
+  },
+  "dependencies": {
+    "puppeteer": "^24.0.0"
+  },
+  "allowScripts": {
+    "puppeteer@24.43.1": true
+  }
+}

@@ -1,0 +1,7 @@
+.vscode
+AGENTS.md
+.qwen
+start_qwen.sh
+data/*
+tests/web/node_modules
+*.log

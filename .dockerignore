@@ -1,0 +1,24 @@
+# Dependencies
+.hxignore
+.git
+.gitignore
+
+# Build artifacts (will be rebuilt in container)
+dist/server.hl
+dist/web/app.js
+
+# Data directory (mounted as volume)
+data/
+
+# IDE / Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Qwen specific
+.qwen/
+start_qwen.sh
+
+# Docs
+AGENTS.md
