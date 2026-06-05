@@ -17,6 +17,12 @@ class ServerInstance {
     public var running:Bool;
     public var pid:Int;
 
+    // Transient state flags — only set by ServerProcessManager, not persisted
+    public var starting:Bool;
+    public var stopping:Bool;
+    public var startFailed:Bool;
+    public var startFailMessage:String;
+
     public function new() {
         this.id = "";
         this.name = "";
@@ -30,6 +36,10 @@ class ServerInstance {
         this.mods = [];
         this.running = false;
         this.pid = -1;
+        this.starting = false;
+        this.stopping = false;
+        this.startFailed = false;
+        this.startFailMessage = "";
     }
 
     static public function instancesDir():String {

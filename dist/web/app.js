@@ -425,7 +425,16 @@ web_Api.stopServer = function(id,onSuccess,onError,onPolling) {
 		}
 	});
 };
-web_Api._pollUntilRunning = function(id,onSuccess,onError,onPolling) {
+web_Api._pollUntilRunning = function(id,onSuccess,onError,onPolling,retries) {
+	if(retries == null) {
+		retries = 0;
+	}
+	if(retries > 60) {
+		if(onError != null) {
+			onError("Server start timed out after 90 seconds");
+		}
+		return;
+	}
 	window.fetch("/api/servers",{ credentials : "same-origin"}).then(function(response) {
 		return response.json().then(function(data) {
 			var servers = data;
@@ -433,18 +442,26 @@ web_Api._pollUntilRunning = function(id,onSuccess,onError,onPolling) {
 			while(_g < servers.length) {
 				var srv = servers[_g];
 				++_g;
-				if(srv.id == id && srv.running) {
-					if(onSuccess != null) {
-						onSuccess(null);
+				if(srv.id == id) {
+					if(srv.startFailed) {
+						if(onError != null) {
+							onError(srv.startFailMessage != null ? srv.startFailMessage : "Start failed");
+						}
+						return;
 					}
-					return;
+					if(srv.running) {
+						if(onSuccess != null) {
+							onSuccess(null);
+						}
+						return;
+					}
 				}
 			}
 			if(onPolling != null) {
 				onPolling();
 			}
 			window.setTimeout(function() {
-				web_Api._pollUntilRunning(id,onSuccess,onError,onPolling);
+				web_Api._pollUntilRunning(id,onSuccess,onError,onPolling,retries + 1);
 			},1500);
 		},function(_) {
 			if(onError != null) {
@@ -457,7 +474,16 @@ web_Api._pollUntilRunning = function(id,onSuccess,onError,onPolling) {
 		}
 	});
 };
-web_Api._pollUntilStopped = function(id,onSuccess,onError,onPolling) {
+web_Api._pollUntilStopped = function(id,onSuccess,onError,onPolling,retries) {
+	if(retries == null) {
+		retries = 0;
+	}
+	if(retries > 40) {
+		if(onError != null) {
+			onError("Server stop timed out after 60 seconds");
+		}
+		return;
+	}
 	window.fetch("/api/servers",{ credentials : "same-origin"}).then(function(response) {
 		return response.json().then(function(data) {
 			var servers = data;
@@ -476,7 +502,7 @@ web_Api._pollUntilStopped = function(id,onSuccess,onError,onPolling) {
 				onPolling();
 			}
 			window.setTimeout(function() {
-				web_Api._pollUntilStopped(id,onSuccess,onError,onPolling);
+				web_Api._pollUntilStopped(id,onSuccess,onError,onPolling,retries + 1);
 			},1500);
 		},function(_) {
 			if(onError != null) {

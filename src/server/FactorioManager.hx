@@ -251,9 +251,8 @@ class FactorioManager {
             return;
         }
 
-        // Run factorio --server --sync-mods <save> --mod-directory <dir> --verbose
+        // Run factorio --sync-mods <save> --mod-directory <dir> --verbose
         var args = [
-            "--server",
             "--sync-mods", savePath,
             "--mod-directory", modsDir,
             "--verbose"

@@ -8,6 +8,7 @@ package server;
 typedef HttpRoute = {
     var method:String;
     var path:EReg;
+    var regexString:String;
     var params:Array<String>;
     var handler:(HttpServerRequest -> HttpServerResponse);
 }
@@ -82,6 +83,7 @@ class HttpServer {
         this.routes.push({
             method: method,
             path: new EReg(regexStr, ""),
+            regexString: regexStr,
             params: params,
             handler: handler
         });
@@ -191,9 +193,11 @@ class HttpServer {
         for (route in routes) {
             if (req.method != route.method) continue;
 
-            if (route.path.match(req.path)) {
+            // Create a fresh EReg per request to avoid stale matched() state on Hashlink
+            var re = new EReg(route.regexString, "");
+            if (re.match(req.path)) {
                 for (i in 0...route.params.length) {
-                    req.params.set(route.params[i], route.path.matched(i + 1));
+                    req.params.set(route.params[i], re.matched(i + 1));
                 }
                 return route.handler(req);
             }

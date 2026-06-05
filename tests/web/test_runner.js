@@ -95,6 +95,7 @@ import runPageTests from './tests/pages.test.js';
 import runCrudTests from './tests/crud.test.js';
 import runSettingsTests from './tests/settings.test.js';
 import runIntegrationTests from './tests/integration.test.js';
+import runLifecycleTests from './tests/server_lifecycle.test.js';
 
 /* -----------------------------------------------------------
    Main
@@ -163,6 +164,9 @@ import runIntegrationTests from './tests/integration.test.js';
 
     console.log('\n--- UI Integration ---');
     await runIntegrationTests(browser, runner);
+
+    console.log('\n--- Server Lifecycle ---');
+    await runLifecycleTests(browser, runner);
   } finally {
     await browser.close();
     server.kill('SIGTERM');

@@ -121,21 +121,34 @@ class Api {
     }
 
     static function _pollUntilRunning(
-        id:String, onSuccess:Dynamic->Void, onError:String->Void, ?onPolling:Void->Void
+        id:String, onSuccess:Dynamic->Void, onError:String->Void, ?onPolling:Void->Void, retries:Int = 0
     ):Void {
+        // Max poll ~90 seconds (60 retries × 1.5s)
+        if (retries > 60) {
+            if (onError != null) onError("Server start timed out after 90 seconds");
+            return;
+        }
+
         Browser.window.fetch("/api/servers", cast { credentials: "same-origin" }).then(
             (response:Dynamic) -> {
                 untyped response.json().then(
                     (data:Dynamic) -> {
                         var servers:Array<Dynamic> = cast data;
                         for (srv in servers) {
-                            if (srv.id == id && srv.running) {
-                                if (onSuccess != null) onSuccess(null);
-                                return;
+                            if (srv.id == id) {
+                                // Check for failure state
+                                if (srv.startFailed) {
+                                    if (onError != null) onError(srv.startFailMessage != null ? srv.startFailMessage : "Start failed");
+                                    return;
+                                }
+                                if (srv.running) {
+                                    if (onSuccess != null) onSuccess(null);
+                                    return;
+                                }
                             }
                         }
                         if (onPolling != null) onPolling();
-                        Browser.window.setTimeout(() -> _pollUntilRunning(id, onSuccess, onError, onPolling), 1500);
+                        Browser.window.setTimeout(() -> _pollUntilRunning(id, onSuccess, onError, onPolling, retries + 1), 1500);
                     },
                     (_) -> { if (onError != null) onError("Failed to parse server list"); }
                 );
@@ -145,8 +158,14 @@ class Api {
     }
 
     static function _pollUntilStopped(
-        id:String, onSuccess:Dynamic->Void, onError:String->Void, ?onPolling:Void->Void
+        id:String, onSuccess:Dynamic->Void, onError:String->Void, ?onPolling:Void->Void, retries:Int = 0
     ):Void {
+        // Max poll ~60 seconds (40 retries × 1.5s)
+        if (retries > 40) {
+            if (onError != null) onError("Server stop timed out after 60 seconds");
+            return;
+        }
+
         Browser.window.fetch("/api/servers", cast { credentials: "same-origin" }).then(
             (response:Dynamic) -> {
                 untyped response.json().then(
@@ -159,7 +178,7 @@ class Api {
                             }
                         }
                         if (onPolling != null) onPolling();
-                        Browser.window.setTimeout(() -> _pollUntilStopped(id, onSuccess, onError, onPolling), 1500);
+                        Browser.window.setTimeout(() -> _pollUntilStopped(id, onSuccess, onError, onPolling, retries + 1), 1500);
                     },
                     (_) -> { if (onError != null) onError("Failed to parse server list"); }
                 );

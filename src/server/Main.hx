@@ -106,6 +106,29 @@ class Main {
 
     // --- API Handlers ---
 
+    /**
+     * Copy a save file from the base data/saves/ directory to an instance's savesDir.
+     * The saveFile parameter is relative to data/saves/ (e.g., "1780434878_5895/game_save.zip").
+     */
+    static function copySaveToInstance(instance:ServerInstance):Bool {
+        var srcPath = "data/saves/" + instance.saveFile;
+        var dstDir = instance.savesDir();
+        var dstPath = dstDir + "/" + instance.saveFile;
+
+        if (!sys.FileSystem.exists(srcPath)) {
+            return false;
+        }
+
+        // Ensure destination subdirectory matches the relative path structure
+        var dstSubDir = dstDir + "/" + instance.saveFile.substring(0, instance.saveFile.lastIndexOf("/"));
+        if (!sys.FileSystem.exists(dstSubDir)) {
+            sys.FileSystem.createDirectory(dstSubDir);
+        }
+
+        sys.io.File.copy(srcPath, dstPath);
+        return true;
+    }
+
     static function apiListServers(req:HttpServerRequest):HttpServer.Response {
         var instances = processManager.getAllProcesses();
         return server.json(instances);
@@ -136,6 +159,9 @@ class Main {
                     modEntry.enabled = true;
                     instance.mods.push(modEntry);
                 }
+
+                // Copy save file to instance's directory
+                copySaveToInstance(instance);
             }
 
             instance.save();
@@ -212,7 +238,6 @@ class Main {
     static function apiGetServerConfig(req:HttpServerRequest):HttpServer.Response {
         var id = req.params.get("id");
         var instances = ServerInstance.list();
-        haxe.Log.trace("apiGetServerConfig: id=" + id + ", found " + instances.length + " instances");
         for (i in instances) {
             if (i.id == id) {
                 return server.json(i);
@@ -264,6 +289,9 @@ class Main {
                     modEntry.enabled = true;
                     instance.mods.push(modEntry);
                 }
+
+                // Copy new save file to instance's directory
+                copySaveToInstance(instance);
             }
 
             instance.save();
@@ -528,8 +556,11 @@ class Main {
     }
 
     static function generateId():String {
-        var ts = Std.string(Math.floor(Sys.time()));
-        var rand = Std.string(Math.floor(Math.random() * 10000));
-        return ts + "_" + rand;
+        var ts = Sys.time();
+        var secs = Std.int(ts);
+        var us = Std.int((ts - secs) * 1000000);
+        var r1 = Std.int(Math.random() * 0xFFFF);
+        var r2 = Std.int(Math.random() * 0xFFFF);
+        return Std.string(secs) + "_" + Std.string(us) + "_" + Std.string(r1) + "_" + Std.string(r2);
     }
 }

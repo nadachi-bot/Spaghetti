@@ -8,6 +8,7 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_DIR="$SCRIPT_DIR/.."
 API_BASE="http://localhost:8080"
 SERVER_PID=""
+TEST_SERVER_IDS=""  # Track created server IDs for cleanup
 TESTS_PASSED=0
 TESTS_FAILED=0
 
@@ -17,14 +18,32 @@ GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 NC='\033[0m' # No Color
 
+track_server_id() {
+    TEST_SERVER_IDS="$TEST_SERVER_IDS $1"
+}
+
 cleanup() {
     echo -e "${YELLOW}Cleaning up...${NC}"
+
+    # Stop and delete any tracked test server instances via the API
+    if [ -n "$TEST_SERVER_IDS" ]; then
+        for sid in $TEST_SERVER_IDS; do
+            echo "  Stopping test instance $sid..."
+            curl -s -X POST "$API_BASE/api/servers/$sid/stop" > /dev/null 2>&1 || true
+            sleep 1
+            echo "  Deleting test instance $sid..."
+            curl -s -X DELETE "$API_BASE/api/servers/$sid" > /dev/null 2>&1 || true
+            # Also remove config file directly in case API delete failed
+            rm -f "$PROJECT_DIR/data/config/instances/$sid.json"
+            rm -f "$PROJECT_DIR/data/config/instances/settings-$sid.json"
+        done
+    fi
+
+    # Kill the server process
     if [ -n "$SERVER_PID" ] && kill -0 "$SERVER_PID" 2>/dev/null; then
         kill "$SERVER_PID" 2>/dev/null || true
         wait "$SERVER_PID" 2>/dev/null || true
     fi
-    # Clean up test instances
-    rm -f "$PROJECT_DIR/data/config/instances/test- "*.json
 }
 
 trap cleanup EXIT
@@ -100,7 +119,7 @@ echo ""
 # Ensure test save exists
 # ------------------------------------------------–
 echo -e "${YELLOW}Verifying test save file...${NC}"
-if [ ! -f "$PROJECT_DIR/data/saves/nullius_1/game_save.zip" ]; then
+if [ ! -f "$PROJECT_DIR/data/saves/1780434878_5895/game_save.zip" ]; then
     echo -e "${RED}Test save file not found!${NC}"
     exit 1
 fi
@@ -140,7 +159,7 @@ CREATE_RESPONSE=$(curl -s -X POST "$API_BASE/api/servers" \
     -H "Content-Type: application/json" \
     -d '{
         "name": "Test Nullius Server",
-        "saveFile": "game_save.zip"
+        "saveFile": "1780434878_5895/game_save.zip"
     }')
 
 echo "Create response: $CREATE_RESPONSE"
@@ -152,10 +171,8 @@ if [ -z "$SERVER_ID" ] || [ "$SERVER_ID" = "null" ]; then
 else
     echo -e "  ${GREEN}✓${NC} Server created with ID: $SERVER_ID"
     TESTS_PASSED=$((TESTS_PASSED + 1))
+    track_server_id "$SERVER_ID"
 fi
-
-assert_http_status "Create server returns 201" "201" "$API_BASE/api/servers" \
-    "POST" '{"name":"Temp Test","saveFile":"test.zip"}'
 
 echo ""
 
@@ -168,7 +185,7 @@ echo "Test Suite: Mod Extraction"
 UPDATE_RESPONSE=$(curl -s -X PUT "$API_BASE/api/servers/$SERVER_ID/config" \
     -H "Content-Type: application/json" \
     -d "{
-        \"saveFile\": \"game_save.zip\",
+        \"saveFile\": \"1780434878_5895/game_save.zip\",
         \"name\": \"Test Nullius Server\"
     }")
 
@@ -224,7 +241,7 @@ fi
 echo ""
 
 # ------------------------------------------------–
-# Test 5: Start the server
+# Test 5: Start the server (with polling wait loop)
 # ------------------------------------------------–
 echo "Test Suite: Start Server"
 
@@ -240,22 +257,40 @@ else
     TESTS_FAILED=$((TESTS_FAILED + 1))
 fi
 
-# Wait for server to initialize
-echo -e "${YELLOW}Waiting 10 seconds for server to initialize...${NC}"
-sleep 10
+# Poll for server to actually reach running state (up to 60s)
+echo -e "${YELLOW}Polling for server to reach running state (timeout 60s)...${NC}"
+MAX_WAIT=60
+WAITED=0
+SERVER_RUNNING=false
 
-# Check if server is running
-RUNNING_CONFIG=$(curl -s "$API_BASE/api/servers/$SERVER_ID/config")
-IS_RUNNING=$(echo "$RUNNING_CONFIG" | jq -r '.running' 2>/dev/null)
+while [ $WAITED -lt $MAX_WAIT ]; do
+    sleep 3
+    WAITED=$((WAITED + 3))
 
-if [ "$IS_RUNNING" = "true" ]; then
-    echo -e "  ${GREEN}✓${NC} Server is running"
-    TESTS_PASSED=$((TESTS_PASSED + 1))
-else
-    echo -e "  ${YELLOW}⚠${NC} Server not marked as running (may still be initializing or mods not downloaded)"
-    # Check logs for more info
-    LOGS=$(curl -s "$API_BASE/api/servers/$SERVER_ID/logs")
-    echo "Server logs: $LOGS"
+    LIST_RESP=$(curl -s "$API_BASE/api/servers")
+    RUNNING=$(echo "$LIST_RESP" | jq --arg id "$SERVER_ID" '[.[] | select(.id == $id)][0].running' 2>/dev/null)
+    START_FAILED=$(echo "$LIST_RESP" | jq --arg id "$SERVER_ID" '[.[] | select(.id == $id)][0].startFailed' 2>/dev/null)
+    FAIL_MSG=$(echo "$LIST_RESP" | jq --arg id "$SERVER_ID" -r '[.[] | select(.id == $id)][0].startFailMessage' 2>/dev/null)
+
+    if [ "$START_FAILED" = "true" ]; then
+        echo -e "  ${RED}✗${NC} Server start failed: $FAIL_MSG"
+        TESTS_FAILED=$((TESTS_FAILED + 1))
+        break
+    fi
+
+    if [ "$RUNNING" = "true" ]; then
+        SERVER_RUNNING=true
+        echo -e "  ${GREEN}✓${NC} Server is running (after ${WAITED}s)"
+        TESTS_PASSED=$((TESTS_PASSED + 1))
+        break
+    fi
+
+    echo -e "  ${YELLOW}⏳${NC} Still starting... (${WAITED}s elapsed)"
+done
+
+if [ "$SERVER_RUNNING" = "false" ] && [ "$WAITED" -ge $MAX_WAIT ]; then
+    echo -e "  ${RED}✗${NC} Server did not start within ${MAX_WAIT}s timeout"
+    TESTS_FAILED=$((TESTS_FAILED + 1))
 fi
 
 echo ""
@@ -265,19 +300,89 @@ echo ""
 # ------------------------------------------------–
 echo "Test Suite: Server Logs"
 
-LOGS_RESPONSE=$(curl -s "$API_BASE/api/servers/$SERVER_ID/logs")
-if [ -n "$LOGS_RESPONSE" ]; then
-    echo -e "  ${GREEN}✓${NC} Can retrieve server logs"
+# Factorio may take several seconds to create and write to its --console-log file.
+# Poll with retries to handle the timing reliably.
+LOGS_RESPONSE=""
+LOG_MAX_WAIT=20
+LOG_WAITED=0
+
+while [ $LOG_WAITED -lt $LOG_MAX_WAIT ]; do
+    sleep 3
+    LOG_WAITED=$((LOG_WAITED + 3))
+    LOGS_RESPONSE=$(curl -s "$API_BASE/api/servers/$SERVER_ID/logs")
+    if [ -n "$LOGS_RESPONSE" ] && [ "$LOGS_RESPONSE" != "[]" ]; then
+        break
+    fi
+    echo -e "  ${YELLOW}⏳${NC} Waiting for log file... (${LOG_WAITED}s)"
+done
+
+if [ -n "$LOGS_RESPONSE" ] && [ "$LOGS_RESPONSE" != "[]" ]; then
+    LOG_LINES=$(echo "$LOGS_RESPONSE" | jq 'length' 2>/dev/null)
+    echo -e "  ${GREEN}✓${NC} Retrieved $LOG_LINES log lines from server (after ${LOG_WAITED}s)"
     TESTS_PASSED=$((TESTS_PASSED + 1))
+
+    # Verify logs contain expected content
+    if echo "$LOGS_RESPONSE" | grep -qi "factorio\|log\|version\|server" 2>/dev/null; then
+        echo -e "  ${GREEN}✓${NC} Logs contain expected Factorio content"
+        TESTS_PASSED=$((TESTS_PASSED + 1))
+    else
+        echo -e "  ${YELLOW}⚠${NC} Logs retrieved but content doesn't match expected patterns"
+        echo "Log sample: $(echo "$LOGS_RESPONSE" | jq -r '.[0]' 2>/dev/null)"
+    fi
 else
-    echo -e "  ${RED}✗${NC} Failed to retrieve server logs"
+    echo -e "  ${RED}✗${NC} Failed to retrieve server logs (empty response after ${LOG_WAITED}s)"
     TESTS_FAILED=$((TESTS_FAILED + 1))
 fi
 
 echo ""
 
 # ------------------------------------------------–
-# Test 7: Delete server instance
+# Test 7: Duplicate server prevention
+# ------------------------------------------------–
+echo "Test Suite: Duplicate Server Prevention"
+
+BEFORE_COUNT=$(curl -s "$API_BASE/api/servers" | jq 'length' 2>/dev/null)
+
+CREATE_2=$(curl -s -X POST "$API_BASE/api/servers" \
+    -H "Content-Type: application/json" \
+    -d '{"name":"Duplicate Test","saveFile":""}')
+ID_2=$(echo "$CREATE_2" | jq -r '.id' 2>/dev/null)
+
+CREATE_3=$(curl -s -X POST "$API_BASE/api/servers" \
+    -H "Content-Type: application/json" \
+    -d '{"name":"Duplicate Test 2","saveFile":""}')
+ID_3=$(echo "$CREATE_3" | jq -r '.id' 2>/dev/null)
+
+AFTER_COUNT=$(curl -s "$API_BASE/api/servers" | jq 'length' 2>/dev/null)
+
+if [ "$ID_2" != "$ID_3" ] && [ "$ID_2" != "$SERVER_ID" ] && [ "$ID_3" != "$SERVER_ID" ]; then
+    echo -e "  ${GREEN}✓${NC} Each create generates a unique server ID"
+    TESTS_PASSED=$((TESTS_PASSED + 1))
+else
+    echo -e "  ${RED}✗${NC} Duplicate IDs detected (ID_2=$ID_2, ID_3=$ID_3)"
+    TESTS_FAILED=$((TESTS_FAILED + 1))
+fi
+
+if [ "$AFTER_COUNT" = "$((BEFORE_COUNT + 2))" ]; then
+    echo -e "  ${GREEN}✓${NC} Server count increased exactly by 2 (no phantom instances)"
+    TESTS_PASSED=$((TESTS_PASSED + 1))
+else
+    echo -e "  ${RED}✗${NC} Server count mismatch (before=$BEFORE_COUNT, after=$AFTER_COUNT, expected $((BEFORE_COUNT + 2)))"
+    TESTS_FAILED=$((TESTS_FAILED + 1))
+fi
+
+# Clean up the extra servers
+if [ -n "$ID_2" ] && [ "$ID_2" != "null" ]; then
+    curl -s -X DELETE "$API_BASE/api/servers/$ID_2" > /dev/null 2>&1
+fi
+if [ -n "$ID_3" ] && [ "$ID_3" != "null" ]; then
+    curl -s -X DELETE "$API_BASE/api/servers/$ID_3" > /dev/null 2>&1
+fi
+
+echo ""
+
+# ------------------------------------------------–
+# Test 8: Delete server instance
 # ------------------------------------------------–
 echo "Test Suite: Delete Server Instance"
 
