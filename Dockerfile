@@ -17,15 +17,14 @@ RUN mkdir -p dist/web && \
 ####################################
 # Stage 2: Runtime
 ####################################
-FROM debian:bookworm-slim
+FROM python:3.11-slim
 
 # Install runtime dependencies
-# - hashlink: to run our server
 # - curl, tar, unzip: for Factorio downloads and mod extraction
 # - xz-utils: for .tar.xz Factorio archives
 # - procps: for process management (kill, ps)
+# - strace: optional debugging tool (removed to slim image)
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    hashlink \
     curl \
     tar \
     unzip \
@@ -36,7 +35,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 WORKDIR /app
 
 # Copy compiled artifacts from builder
-COPY --from=builder /build/dist/server.hl ./dist/server.hl
+COPY --from=builder /build/dist/server.py ./dist/server.py
 COPY --from=builder /build/dist/web/ ./dist/web/
 
 # Create data directories
@@ -55,4 +54,4 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
     CMD curl -f http://localhost:8080/api/servers || exit 1
 
 # Start the server
-ENTRYPOINT ["hl", "dist/server.hl"]
+ENTRYPOINT ["python3", "dist/server.py"]

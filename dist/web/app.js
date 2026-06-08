@@ -1417,6 +1417,7 @@ web_ServersPage.buildConsoleModal = function() {
 	web_ServersPage.div("modal",web_ServersPage.consoleModal);
 };
 web_ServersPage.openConsole = function(id) {
+	web_ServersPage.currentLogServer = id;
 	web_ServersPage.consoleModal.classList.remove("hidden");
 	var modalContent = js_Boot.__cast(web_ServersPage.consoleModal.firstChild , HTMLElement);
 	web_ServersPage.clear(modalContent);
@@ -1430,15 +1431,46 @@ web_ServersPage.openConsole = function(id) {
 			return;
 		}
 		web_Api.sendConsole(id,cmd,function(data) {
-			output.textContent += "\n> " + cmd + "\n" + (data != null ? data : "");
+			output.textContent += "\n> " + cmd + "\n" + (data != null ? data.output : "");
 		},function(err) {
 			output.textContent += "\nError: " + err;
 		});
 		cmdInput.value = "";
 	});
 	web_ServersPage.btn("Close","btn",inputRow,function(_) {
-		web_ServersPage.consoleModal.classList.add("hidden");
+		web_ServersPage.closeConsole();
 	});
+	web_ServersPage.refreshConsoleLog();
+	web_ServersPage.logInterval = window.setInterval(function() {
+		web_ServersPage.refreshConsoleLog();
+	},3000);
+};
+web_ServersPage.refreshConsoleLog = function() {
+	web_Api.getLogs(web_ServersPage.currentLogServer,200,function(data) {
+		var output = js_Boot.__cast(web_ServersPage.query(web_ServersPage.consoleModal,"pre.console-output") , HTMLPreElement);
+		if(output == null) {
+			return;
+		}
+		var lines = data;
+		var txt = "";
+		if(lines != null) {
+			var _g = 0;
+			while(_g < lines.length) {
+				var l = lines[_g];
+				++_g;
+				txt += Std.string(l) + "\n";
+			}
+		}
+		output.textContent = txt;
+	},function(_) {
+	});
+};
+web_ServersPage.closeConsole = function() {
+	web_ServersPage.consoleModal.classList.add("hidden");
+	if(web_ServersPage.logInterval != null) {
+		window.clearInterval(web_ServersPage.logInterval);
+		web_ServersPage.logInterval = null;
+	}
 };
 web_ServersPage.query = function(parent,selector) {
 	return parent.querySelector(selector);

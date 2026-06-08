@@ -48,6 +48,7 @@ class FactorioManager {
             var url = "https://factorio.com/get-download/stable/headless/linux64";
             var proc = new sys.io.Process("curl", ["-sIL", url]);
             var result = proc.stdout.readAll().toString();
+            try { proc.exitCode(); } catch (e:Dynamic) {}
             proc.close();
 
             // Parse redirect Location header
@@ -108,6 +109,7 @@ class FactorioManager {
         try {
             var proc = new sys.io.Process("stat", ["-c%s", path]);
             var result = proc.stdout.readLine();
+            try { proc.exitCode(); } catch (e:Dynamic) {}
             proc.close();
             var size = Std.parseInt(result);
             return size != null ? size : 0;
@@ -159,6 +161,7 @@ class FactorioManager {
             // Extract .tar.xz
             var args = ["-xJf", tempFile, "-C", targetDir];
             var proc = new sys.io.Process("tar", args);
+            try { proc.exitCode(); } catch (e:Dynamic) {}
             proc.close();
 
             // Make binaries executable
@@ -183,6 +186,7 @@ class FactorioManager {
         } else {
             try {
                 var chmodProc = new sys.io.Process("chmod", ["+x", path]);
+                try { chmodProc.exitCode(); } catch (e:Dynamic) {}
                 chmodProc.close();
             } catch (e:Dynamic) {}
         }
@@ -341,6 +345,7 @@ class FactorioManager {
             ];
             var proc = new sys.io.Process("curl", args);
             var result = proc.stdout.readLine();
+            try { proc.exitCode(); } catch (e:Dynamic) {}
             proc.close();
 
             if (result == null || result == "") return [];
@@ -381,6 +386,7 @@ class FactorioManager {
             // Saves may have nested structures (e.g., null2/level-init.dat)
             var tempDir = "/tmp/factorio-save-extract-" + Date.now().getTime();
             var mkdirProc = new sys.io.Process("mkdir", ["-p", tempDir]);
+            try { mkdirProc.exitCode(); } catch (e:Dynamic) {}
             mkdirProc.close();
 
             // Wrap with `timeout 30` to guarantee `readAll()` returns
@@ -388,6 +394,7 @@ class FactorioManager {
             // Must drain ALL output or process will block / throw Eof
             unzipProc.stdout.readAll().toString();
             unzipProc.stderr.readAll().toString();
+            try { unzipProc.exitCode(); } catch (e:Dynamic) {}
             unzipProc.close();
 
             // Recursively find level*.dat files
@@ -417,6 +424,7 @@ class FactorioManager {
 
             // Cleanup
             var rmProc = new sys.io.Process("rm", ["-rf", tempDir]);
+            try { rmProc.exitCode(); } catch (e:Dynamic) {}
             rmProc.close();
         } catch (e:Dynamic) {
             haxe.Log.trace("Failed to extract mods from save: " + e);
@@ -438,6 +446,7 @@ class FactorioManager {
             // Wrap with `timeout 15` to guarantee `readAll()` returns
             var stringsProc = new sys.io.Process("timeout", ["15", "strings", levelFile]);
             var output = stringsProc.stdout.readAll().toString();
+            try { stringsProc.exitCode(); } catch (e:Dynamic) {}
             stringsProc.close();
 
             var lines = output.split("\n");
@@ -498,6 +507,7 @@ class FactorioManager {
     function downloadText(url:String):String {
         var proc = new sys.io.Process("curl", ["-sS", "-L", url]);
         var result = proc.stdout.readLine();
+        try { proc.exitCode(); } catch (e:Dynamic) {}
         proc.close();
         return result ?? "";
     }
@@ -511,6 +521,7 @@ class FactorioManager {
             "-H", "Cookie: auth_token=" + this.managerConfig.factorioToken
         ]);
         var result = proc.stdout.readLine();
+        try { proc.exitCode(); } catch (e:Dynamic) {}
         proc.close();
         return result ?? "";
     }
@@ -521,6 +532,7 @@ class FactorioManager {
      */
     function downloadFile(url:String, outputPath:String):Void {
         var proc = new sys.io.Process("curl", ["-sS", "-L", "-o", outputPath, url]);
+        try { proc.exitCode(); } catch (e:Dynamic) {}
         proc.close();
     }
 
@@ -536,6 +548,7 @@ class FactorioManager {
         args.push(url);
 
         var proc = new sys.io.Process("curl", args);
+        try { proc.exitCode(); } catch (e:Dynamic) {}
         proc.close();
     }
 

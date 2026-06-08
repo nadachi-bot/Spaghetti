@@ -5,3 +5,7 @@ start_qwen.sh
 data/*
 tests/web/node_modules
 *.log
+dist/*.hl
+dist/*.py
+*.pyc
+__pycache__/*

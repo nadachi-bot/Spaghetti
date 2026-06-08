@@ -331,7 +331,37 @@ body {
   color: #00ff00;
 }
 
+.log-area {
+  background: #000;
+  border: 1px solid var(--border-color);
+  padding: 12px;
+  font-family: 'Courier New', monospace;
+  font-size: 12px;
+  max-height: 400px;
+  min-height: 200px;
+  overflow-y: auto;
+  white-space: pre-wrap;
+  word-break: break-all;
+  color: #00ff00;
+  margin-top: 12px;
+}
+
 /* ---- Console ---- */
+.console-output {
+  background: #000;
+  border: 1px solid var(--border-color);
+  padding: 12px;
+  font-family: 'Courier New', monospace;
+  font-size: 12px;
+  max-height: 400px;
+  min-height: 200px;
+  overflow-y: auto;
+  white-space: pre-wrap;
+  word-break: break-all;
+  color: #cccccc;
+  margin-top: 12px;
+}
+
 .console-input-row {
   display: flex;
   gap: 8px;

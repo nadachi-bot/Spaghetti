@@ -62,12 +62,12 @@ export default async function runTests(browser, runner) {
     await page.click('button.btn-primary');
     await waitForEl(page, '.modal-overlay');
 
-    // Fill in name and save file
+    // Fill in name only (modal uses file upload button for save, not text input)
+    // Note: .form-input:nth-child(2) is a <span> label, not an input.
+    // Typing into it causes Puppeteer to fallback to currently focused element (name input),
+    // concatenating "test_save.zip" onto the server name.
     const nameInput = await page.$('.modal-form .form-input:nth-child(1)');
-    const saveInput  = await page.$('.modal-form .form-input:nth-child(2)');
-
     await nameInput.type('Integration Test Server');
-    await saveInput.type('test_save.zip');
 
     // Click Create (first button in .modal-buttons)
     const createBtns = await page.$$('.modal-buttons button');
@@ -77,30 +77,40 @@ export default async function runTests(browser, runner) {
     const toastText = await waitForToast(page);
     await runner.runTruthy('Create server shows success toast', toastText.includes('Server created'));
 
-    // Wait a tick for loadServers() to refresh
-    await new Promise(r => setTimeout(r, 1500));
-
-    // Verify server appears in list
-    const serverInList = await page.evaluate(() => {
-      const names = document.querySelectorAll('.server-name');
-      return Array.from(names).some(n => n.textContent === 'Integration Test Server');
-    });
-    await runner.runTruthy('Created server appears in list', serverInList);
-
-    // Get server ID via API so we can navigate to edit page
-    const listRes = await http('GET', BASE_URL + '/api/servers');
-    if (Array.isArray(listRes.body)) {
-      const srv = listRes.body.find(s => s.name === 'Integration Test Server');
-      if (srv) {
-        createdServerId = srv.id;
-        await runner.runTruthy('Captured server ID', createdServerId);
+    // Poll for the server to appear via API first, then wait for UI render
+    let apiFound = false;
+    for (let i = 0; i < 20; i++) {
+      await new Promise(r => setTimeout(r, 500));
+      const listRes = await http('GET', BASE_URL + '/api/servers');
+      if (Array.isArray(listRes.body)) {
+        const srv = listRes.body.find(s => s.name === 'Integration Test Server');
+        if (srv) {
+          createdServerId = srv.id;
+          apiFound = true;
+          break;
+        }
       }
     }
+    await runner.runTruthy('API returned created server', apiFound);
 
-    // Verify save file was set
+    // Now poll the UI for the server card to appear in the DOM
+    if (createdServerId) {
+      let uiFound = false;
+      for (let i = 0; i < 20; i++) {
+        await new Promise(r => setTimeout(r, 500));
+        uiFound = await page.evaluate(() => {
+          const names = document.querySelectorAll('.server-name');
+          return Array.from(names).some(n => n.textContent === 'Integration Test Server');
+        });
+        if (uiFound) break;
+      }
+      await runner.runTruthy('Created server appears in list', uiFound);
+    }
+
+    // Initial saveFile is empty (file upload happens after server creation in separate step)
     if (createdServerId) {
       const cfgRes = await http('GET', BASE_URL + '/api/servers/' + createdServerId + '/config');
-      await runner.run('Created server has correct save file', cfgRes.body.saveFile, 'test_save.zip');
+      await runner.run('Created server has empty save file initially', cfgRes.body.saveFile, '');
     }
 
     await page.close();

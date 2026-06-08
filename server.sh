@@ -2,19 +2,19 @@
 # Factorio Server Manager - start/stop/status script
 
 PID_FILE=".server.pid"
-HL_FILE="dist/server.hl"
+PY_FILE="dist/server.py"
 
 cmd_start() {
     if [ -f "$PID_FILE" ] && kill -0 "$(cat "$PID_FILE")" 2>/dev/null; then
         echo "Already running (PID $(cat "$PID_FILE"))"
         exit 0
     fi
-    if [ ! -f "$HL_FILE" ]; then
+    if [ ! -f "$PY_FILE" ]; then
         echo "Server binary not found. Run: haxe compile_server.hxml"
         exit 1
     fi
     echo "Starting server..."
-    nohup hl "$HL_FILE" > .server.log 2>&1 &
+    nohup python3 "$PY_FILE" > .server.log 2>&1 &
     echo $! > "$PID_FILE"
     echo "Started (PID $!)"
 }

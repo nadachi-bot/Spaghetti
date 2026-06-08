@@ -174,5 +174,12 @@ import runLifecycleTests from './tests/server_lifecycle.test.js';
   }
 
   const ok = runner.summary();
+
+  // Print server output if any tests failed
+  if (!ok && serverOutput.length > 0) {
+    console.log('\n======  Server Output (last 3000 chars)  == ====');
+    console.log(serverOutput.slice(-3000));
+  }
+
   process.exit(ok ? 0 : 1);
 })();

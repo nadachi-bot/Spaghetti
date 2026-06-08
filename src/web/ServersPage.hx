@@ -333,6 +333,7 @@ class ServersPage {
     }
 
     static function openConsole(id:String):Void {
+        currentLogServer = id;
         consoleModal.classList.remove("hidden");
 
         var modalContent = cast(consoleModal.firstChild, js.html.Element);
@@ -349,14 +350,41 @@ class ServersPage {
                 if (cmd == "") return;
                 Api.sendConsole(id, cmd,
                     data -> {
-                        output.textContent += "\n> " + cmd + "\n" + (data != null ? data : "");
+                        output.textContent += "\n> " + cmd + "\n" + (data != null ? cast data.output : "");
                     },
                     err -> { output.textContent += "\nError: " + err; }
                 );
                 cmdInput.value = "";
             }
         );
-        btn("Close", "btn", inputRow, _ -> consoleModal.classList.add("hidden"));
+        btn("Close", "btn", inputRow, _ -> closeConsole());
+
+        refreshConsoleLog();
+        logInterval = window.setInterval(() -> refreshConsoleLog(), 3000);
+    }
+
+    static function refreshConsoleLog():Void {
+        Api.getLogs(currentLogServer, 200,
+            data -> {
+                var output = cast(query(consoleModal, "pre.console-output"), js.html.PreElement);
+                if (output == null) return;
+                var lines:Array<Dynamic> = cast data;
+                var txt = "";
+                if (lines != null) {
+                    for (l in lines) txt += l + "\n";
+                }
+                output.textContent = txt;
+            },
+            _ -> {}
+        );
+    }
+
+    static function closeConsole():Void {
+        consoleModal.classList.add("hidden");
+        if (logInterval != null) {
+            window.clearInterval(logInterval);
+            logInterval = null;
+        }
     }
 
     /* -------- Query helpers -------- */

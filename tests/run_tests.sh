@@ -131,7 +131,7 @@ echo ""
 # --------------------------------------------------
 echo -e "${YELLOW}Starting server...${NC}"
 cd "$PROJECT_DIR"
-hl dist/server.hl &
+python3 dist/server.py &
 SERVER_PID=$!
 sleep 3  # Wait for server to start
 

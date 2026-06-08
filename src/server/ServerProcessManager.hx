@@ -32,6 +32,72 @@ class ServerProcessManager {
     }
 
     /**
+     * Called at startup with ServerInstance registry already loaded.
+     * Clears any stale in-memory state from a previous run and kills
+     * orphaned Factorio processes that survived a manager crash.
+     */
+    public function loadInstances():Void {
+        // No-op: registry is populated by ServerInstance.loadRegistry().
+        // Any running Factorio processes from a prior manager session are lost on restart,
+        // so all state flags (starting/stopping/startFailed) start fresh.
+
+        // Kill any orphaned Factorio processes from a previous manager session
+        killOrphanedFactorioProcesses();
+    }
+
+    /**
+     * Find and kill any orphaned Factorio processes under data/server/ that survived
+     * a manager crash or unclean shutdown.
+     */
+    function killOrphanedFactorioProcesses():Void {
+        try {
+            var proc = new sys.io.Process("sh", ["-c", "ps -eo pid,comm --no-headers 2>/dev/null | grep factorio"]);
+            var buf = haxe.io.Bytes.alloc(4096);
+            var allContent = new StringBuf();
+            try {
+                while (true) {
+                    var len = proc.stdout.readBytes(buf, 0, buf.length);
+                    if (len == 0) break;
+                    allContent.add(buf.sub(0, len).toString());
+                }
+            } catch (e:haxe.io.Eof) {
+                // EOF reached normally
+            } catch (e:Dynamic) {
+                try { proc.exitCode(); } catch (e2:Dynamic) {}
+                proc.close();
+                return;
+            }
+            try { proc.exitCode(); } catch (e:Dynamic) {}
+            proc.close();
+
+            var lines:Array<String> = allContent.toString().split("\n");
+            for (line in lines) {
+                var parts:Array<String> = line.split(" ");
+                if (parts.length < 2) continue;
+                var pid = Std.parseInt(parts[0]);
+                if (pid <= 0) continue;
+
+                // Check if this process is under our data/server/ directory
+                var cmdlineLink = "/proc/" + pid + "/cmdline";
+                if (!sys.FileSystem.exists(cmdlineLink)) continue;
+                try {
+                    var cmdline = sys.io.File.getContent(cmdlineLink);
+                    // Replace null bytes with spaces for splitting
+                    cmdline = StringTools.replace(cmdline, "\x00", " ");
+                    if (StringTools.contains(cmdline, "data/server/")) {
+                        haxe.Log.trace("Killing orphaned Factorio process " + pid);
+                        Sys.command("kill", [Std.string(pid)]);
+                    }
+                } catch (e:Dynamic) {
+                    // Process already gone or permission denied
+                }
+            }
+        } catch (e:Dynamic) {
+            haxe.Log.trace("Error during orphan cleanup: " + e);
+        }
+    }
+
+    /**
      * Start a Factorio server instance (async — spawns a background thread).
      * Returns true if the start was initiated, false if already running or starting.
      */
@@ -162,19 +228,26 @@ class ServerProcessManager {
         };
         this.processes.set(instance.id, info);
 
-        // Start a background monitor thread to avoid blocking HTTP thread with exitCode()
+        // Start a background monitor thread to detect process exit via exitCode().
+        // The loop is guarded by checkedRunning so _doStop can terminate this thread
+        // by setting checkedRunning = false (after force-killing). Without this guard,
+        // a stale monitor thread can loop forever calling exitCode() on an already-
+        // reaped process, blocking indefinitely and making the HTTP server unresponsive.
         var _this = this;
         sys.thread.Thread.create(function() {
-            while (true) {
+            while (info.checkedRunning) {
                 Sys.sleep(2);
                 try {
                     var code = proc.exitCode();
                     if (code != null) {
                         info.checkedRunning = false;
-                        break; // Process exited, stop monitoring
                     }
+                } catch (e:haxe.io.Eof) {
+                    // Process already reaped (another thread or force-kill consumed the exit status)
+                    info.checkedRunning = false;
                 } catch (e:Dynamic) {
-                    // If we can't check, assume still running
+                    // If we can't check, assume still running — loop will naturally
+                    // terminate when checkedRunning is set to false by _doStop.
                 }
             }
         });
@@ -191,22 +264,41 @@ class ServerProcessManager {
 
     /**
      * Internal: perform the actual stop work inside a background thread.
+     *
+     * IMPORTANT: On Hashlink, sys.io.Process.exitCode() BLOCKS until the
+     * process exits. The monitor thread (created in _doStart) is responsible
+     * for calling exitCode() and updating the checkedRunning flag. This
+     * function must NOT call exitCode() directly — it only polls the flag.
+     *
+     * Shutdown sequence:
+     *   1. /game.server_save()  — triggers a synchronous autosave
+     *   2. /quit                — graceful shutdown (saves map, closes cleanly)
+     *   3. 30s graceful window   — monitor thread detects exit via exitCode()
+     *   4. SIGKILL fallback     — force kill + close streams to unblock monitor
      */
     function _doStop(id:String):Void {
         if (!processes.exists(id)) return;
         var info = processes.get(id);
 
-        // Send "exit" command if process is still alive
+        // Send save-then-quit sequence so Factorio flushes the game state
+        // before shutting down. /quit triggers a clean shutdown (saves
+        // the map, closes the server socket, and exits the process).
         if (isRunning(id)) {
             try {
-                info.process.stdin.writeString("exit\n");
+                info.process.stdin.writeString("/game.server_save()\n");
                 info.process.stdin.flush();
+                Sys.sleep(2); // Give the save command time to complete
+                info.process.stdin.writeString("/quit\n");
+                info.process.stdin.flush();
+                info.process.stdin.close();
             } catch (e:Dynamic) {
-                haxe.Log.trace("Failed to write exit command for " + id + ": " + e);
+                haxe.Log.trace("Failed to send stop command for " + id + ": " + e);
             }
         }
 
-        // Wait for process to exit (with timeout)
+        // Wait for the monitor thread to detect the process exit via exitCode()
+        // and update checkedRunning to false. Do NOT call exitCode() here —
+        // it blocks on Hashlink and would freeze this thread.
         var waited = 0;
         while (waited < 30) {
             if (!isRunning(id)) break;
@@ -214,25 +306,34 @@ class ServerProcessManager {
             waited++;
         }
 
-        // Force kill if still running
+        // Force kill if still running after 30 seconds
         if (isRunning(id)) {
-            haxe.Log.trace("Force killing Factorio process " + id);
+            haxe.Log.trace("Timeout waiting for " + id + " to exit, force killing");
             try {
                 info.process.kill();
-                info.checkedRunning = false; // Force mark as stopped immediately
             } catch (e:Dynamic) {
                 haxe.Log.trace("Force kill error for " + id + ": " + e);
-                // Fallback: try closing streams
-                try {
-                    info.process.stdin.close();
-                    info.process.stdout.close();
-                    info.process.stderr.close();
-                    info.process.close();
-                    info.checkedRunning = false;
-                } catch (e2:Dynamic) {
-                    haxe.Log.trace("Stream close fallback error for " + id + ": " + e2);
-                }
             }
+
+            // Close all process streams after kill. This helps interrupt a blocked
+            // exitCode() call in the monitor thread, causing it to throw Eof and
+            // exit quickly instead of waiting for the 2-second sleep cycle.
+            try { info.process.stdin.close(); } catch (e:Dynamic) {}
+            try { info.process.stdout.close(); } catch (e:Dynamic) {}
+            try { info.process.stderr.close(); } catch (e:Dynamic) {}
+            try { info.process.close(); } catch (e:Dynamic) {}
+
+            // Give the monitor thread time to see the kill and update the flag
+            // (without calling exitCode() ourselves, which would block/reap).
+            var grace = 0;
+            while (grace < 5 && isRunning(id)) {
+                Sys.sleep(1);
+                grace++;
+            }
+
+            // Mark as stopped regardless — the process can't be reaping cleanly
+            // if we hit the force-kill path.
+            info.checkedRunning = false;
         }
 
         var instance = info.instance;
@@ -329,11 +430,16 @@ class ServerProcessManager {
         startFailedStates.remove(id);
         startFailMessages.remove(id);
 
-        // Delete config file
+        // Delete config files
         try {
             var configPath = "data/config/instances/" + id + ".json";
             if (sys.FileSystem.exists(configPath)) {
                 sys.FileSystem.deleteFile(configPath);
+            }
+            // Also clean up the server settings file written by writeServerSettings()
+            var settingsPath = ServerSettings.settingsPath(id);
+            if (sys.FileSystem.exists(settingsPath)) {
+                sys.FileSystem.deleteFile(settingsPath);
             }
         } catch (e:Dynamic) {
             haxe.Log.trace("Error deleting config for " + id + ": " + e);
@@ -374,6 +480,7 @@ class ServerProcessManager {
      * Uses `tail -n` via sys.io.Process to avoid blocking on actively-written
      * log files (sys.io.File.getContent and direct readLine can hang on Hashlink
      * and freeze the single-threaded HTTP server).
+     * Wrapped with `timeout 15` to guarantee the handler thread always returns.
      */
     public function getLogs(id:String, lines:Int = 100):Array<String> {
         var logPath = "";
@@ -389,7 +496,9 @@ class ServerProcessManager {
         try {
             var extraLines = 20;
             var totalLines = lines + extraLines;
-            var proc = new sys.io.Process("tail", ["-n", Std.string(totalLines), logPath]);
+            // Wrap with `timeout 15` to prevent the handler thread from blocking
+            // forever if tail hangs (e.g., file lock or pipe issue).
+            var proc = new sys.io.Process("timeout", ["15", "tail", "-n", Std.string(totalLines), logPath]);
 
             try {
                 proc.stdin.close();
@@ -411,6 +520,9 @@ class ServerProcessManager {
                 // Read error
             }
 
+            // Reap the process before closing to avoid zombie accumulation.
+            // On Hashlink, close() only closes streams — exitCode() reaps the process.
+            try { proc.exitCode(); } catch (e:Dynamic) {}
             proc.close();
 
             var rawContent = allContent.toString();

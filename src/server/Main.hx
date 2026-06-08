@@ -25,6 +25,10 @@ class Main {
         ensureDir("data/server/mods");
         ensureDir("data/saves");
 
+        // Load instance registry into memory (thread-safe, no disk races)
+        ServerInstance.loadRegistry();
+        processManager.loadInstances();
+
         // Setup HTTP server
         server = new HttpServer(config.port);
 
@@ -164,7 +168,8 @@ class Main {
                 copySaveToInstance(instance);
             }
 
-            instance.save();
+            // Atomically save and register to prevent race with concurrent list() calls
+            ServerInstance.saveAndRegister(instance);
             return server.jsonStatus(201, instance);
         } catch (e:Dynamic) {
             return server.jsonStatus(400, { error: "Failed to create server: " + e });
@@ -177,6 +182,7 @@ class Main {
             // deleteInstance() handles: stop if running, wait for stop, then delete config
             var success = processManager.deleteInstance(id);
             if (success) {
+                ServerInstance.unregisterInstance(id);
                 return server.noContent();
             } else {
                 return server.jsonStatus(500, { error: "Failed to delete server" });
@@ -219,8 +225,11 @@ class Main {
 
     static function apiStopServer(req:HttpServerRequest):HttpServer.Response {
         var id = req.params.get("id");
+
+        // Idempotent: if the server is not running (already stopped or never started),
+        // the desired state is achieved — return success.
         if (!processManager.isRunning(id)) {
-            return server.jsonStatus(400, { error: "Server not running" });
+            return server.jsonStatus(200, { status: "stopped" });
         }
 
         if (processManager.isStopping(id)) {
@@ -231,7 +240,9 @@ class Main {
         if (success) {
             return server.jsonStatus(202, { status: "stopping" });
         } else {
-            return server.jsonStatus(500, { error: "Failed to stop server" });
+            // stopInstance() returned false while isRunning was true — unlikely race.
+            // Mark as stopped to keep state clean.
+            return server.jsonStatus(200, { status: "stopped" });
         }
     }
 

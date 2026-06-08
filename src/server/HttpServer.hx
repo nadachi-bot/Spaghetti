@@ -94,7 +94,16 @@ class HttpServer {
         while (true) {
             try {
                 var client = this.socket.accept();
-                this.handleClient(client);
+                // Handle each client in its own thread so a slow handler
+                // (e.g., getLogs reading an actively-written log file)
+                // doesn't block the accept loop and freeze the entire server.
+                sys.thread.Thread.create(function() {
+                    try {
+                        this.handleClient(client);
+                    } catch (e:Dynamic) {
+                        haxe.Log.trace("Error handling client in thread: " + e);
+                    }
+                });
             } catch (e:Dynamic) {
                 haxe.Log.trace("Error accepting connection: " + e);
             }
