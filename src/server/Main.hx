@@ -66,6 +66,7 @@ class Main {
 
         // API: Logs & Console
         server.get("/api/servers/:id/logs", apiGetLogs);
+        server.get("/api/servers/:id/process-logs", apiGetProcessLogs);
         server.post("/api/servers/:id/console", apiSendConsole);
 
         // API: Settings
@@ -112,21 +113,34 @@ class Main {
 
     /**
      * Copy a save file from the base data/saves/ directory to an instance's savesDir.
-     * The saveFile parameter is relative to data/saves/ (e.g., "1780434878_5895/game_save.zip").
+     * Falls back to checking the instance's personal saves directory if the shared
+     * pool does not contain the file (happens when the file was uploaded directly via
+     * the upload-save endpoint rather than placed in the shared pool).
      */
     static function copySaveToInstance(instance:ServerInstance):Bool {
         var srcPath = "data/saves/" + instance.saveFile;
         var dstDir = instance.savesDir();
         var dstPath = dstDir + "/" + instance.saveFile;
 
+        // File may already be in the instance's personal saves dir (uploaded directly),
+        // so skip the copy if the destination already exists.
+        if (sys.FileSystem.exists(dstPath)) {
+            haxe.Log.trace("copySaveToInstance: " + instance.saveFile + " already in " + instance.id + "'s saves dir, skipping copy");
+            return true;
+        }
+
         if (!sys.FileSystem.exists(srcPath)) {
+            haxe.Log.trace("copySaveToInstance: source " + srcPath + " not found, and file not in instance dir either");
             return false;
         }
 
         // Ensure destination subdirectory matches the relative path structure
-        var dstSubDir = dstDir + "/" + instance.saveFile.substring(0, instance.saveFile.lastIndexOf("/"));
-        if (!sys.FileSystem.exists(dstSubDir)) {
-            sys.FileSystem.createDirectory(dstSubDir);
+        var lastSlash = instance.saveFile.lastIndexOf("/");
+        if (lastSlash > 0) {
+            var dstSubDir = dstDir + "/" + instance.saveFile.substring(0, lastSlash);
+            if (!sys.FileSystem.exists(dstSubDir)) {
+                sys.FileSystem.createDirectory(dstSubDir);
+            }
         }
 
         sys.io.File.copy(srcPath, dstPath);
@@ -150,21 +164,9 @@ class Main {
                 instance.name = "Server_" + instance.id;
             }
 
-            // Extract mods from save file if provided
+            // Copy save file to instance's directory (mods will be loaded from
+            // mods-list.json on first server start via --sync-mods)
             if (instance.saveFile != "") {
-                var savePath = "data/saves/" + instance.saveFile;
-                var modInfos = factorioManager.extractModsFromSave(savePath);
-                instance.mods = [];
-                for (modInfo in modInfos) {
-                    var modEntry = new ModEntry();
-                    modEntry.name = modInfo.name;
-                    modEntry.title = modInfo.title;
-                    modEntry.version = modInfo.version;
-                    modEntry.enabled = true;
-                    instance.mods.push(modEntry);
-                }
-
-                // Copy save file to instance's directory
                 copySaveToInstance(instance);
             }
 
@@ -287,25 +289,18 @@ class Main {
             instance.saveFile = newSaveFile;
             if (data.mods != null) instance.mods = ServerInstance.parseMods(data.mods);
 
-            // Re-extract mods if saveFile changed
-            if (oldSaveFile != newSaveFile && newSaveFile != "") {
-                var savePath = "data/saves/" + newSaveFile;
-                var modInfos = factorioManager.extractModsFromSave(savePath);
+            // Clear mods if saveFile changed; they will be reloaded from
+            // mods-list.json on next server start via --sync-mods
+            if (oldSaveFile != newSaveFile) {
                 instance.mods = [];
-                for (modInfo in modInfos) {
-                    var modEntry = new ModEntry();
-                    modEntry.name = modInfo.name;
-                    modEntry.title = modInfo.title;
-                    modEntry.version = modInfo.version;
-                    modEntry.enabled = true;
-                    instance.mods.push(modEntry);
-                }
 
                 // Copy new save file to instance's directory
-                copySaveToInstance(instance);
+                if (newSaveFile != "") {
+                    copySaveToInstance(instance);
+                }
             }
 
-            instance.save();
+            ServerInstance.saveAndRegister(instance);
             return server.json(instance);
         } catch (e:Dynamic) {
             return server.jsonStatus(400, { error: "Failed to update config: " + e });
@@ -319,6 +314,16 @@ class Main {
             lines = Std.parseInt(req.headers.get("x-lines"));
         }
         var logs = processManager.getLogs(id, lines);
+        return server.json(logs);
+    }
+
+    static function apiGetProcessLogs(req:HttpServerRequest):HttpServer.Response {
+        var id = req.params.get("id");
+        var lines = 100;
+        if (req.headers.exists("x-lines")) {
+            lines = Std.parseInt(req.headers.get("x-lines"));
+        }
+        var logs = processManager.getProcessLogs(id, lines);
         return server.json(logs);
     }
 
@@ -409,7 +414,7 @@ class Main {
             for (mod in instance.mods) {
                 if (mod.name == modName) {
                     mod.enabled = !mod.enabled;
-                    instance.save();
+                    ServerInstance.saveAndRegister(instance);
                     return server.json(instance);
                 }
             }
@@ -454,7 +459,7 @@ class Main {
             modEntry.version = modVersion;
             modEntry.enabled = true;
             instance.mods.push(modEntry);
-            instance.save();
+            ServerInstance.saveAndRegister(instance);
             return server.jsonStatus(201, instance);
         } catch (e:Dynamic) {
             return server.jsonStatus(400, { error: "Failed to add mod: " + e });
@@ -483,7 +488,7 @@ class Main {
             for (i in 0...instance.mods.length) {
                 if (instance.mods[i].name == modName) {
                     instance.mods.splice(i, 1);
-                    instance.save();
+                    ServerInstance.saveAndRegister(instance);
                     return server.json(instance);
                 }
             }
@@ -516,36 +521,66 @@ class Main {
                 return server.jsonStatus(400, { error: "Missing fileName or fileData" });
             }
 
+            haxe.Log.trace("apiUploadSave: receiving file " + fileName + " for instance " + id);
+
             // Strip data URI prefix if present
             var base64Data = fileData;
             var commaIdx = fileData.lastIndexOf(",");
             if (commaIdx > 0) base64Data = fileData.substring(commaIdx + 1);
 
-            // Decode base64 to bytes and save to instance's saves directory
-            var bytes = haxe.crypto.Base64.decode(base64Data);
+            // Decode base64 to bytes and save to instance's saves directory.
+            // haxe.crypto.Base64.decode on the Python target is O(n^2) and blocks
+            // for minutes on large files (~3MB base64). We defer the decode to a
+            // background thread by writing the base64 to a temp file first.
             var saveDir = instance.savesDir();
             ensureDir(saveDir);
-            var out = sys.io.File.write(saveDir + "/" + fileName);
-            out.writeBytes(bytes, 0, bytes.length);
-            out.close();
+            var tmpB64 = saveDir + "/_upload.b64";
+            sys.io.File.saveContent(tmpB64, base64Data);
 
+            // Save fileName immediately so the caller knows the upload was accepted.
             instance.saveFile = fileName;
+            ServerInstance.saveAndRegister(instance);
 
-            // Re-extract mods from the newly uploaded save
-            var modInfos = factorioManager.extractModsFromSave(saveDir + "/" + fileName);
-            instance.mods = [];
-            for (modInfo in modInfos) {
-                var modEntry = new ModEntry();
-                modEntry.name = modInfo.name;
-                modEntry.title = modInfo.title;
-                modEntry.version = modInfo.version;
-                modEntry.enabled = true;
-                instance.mods.push(modEntry);
-            }
+            // Decode base64 in the background so the response returns within
+            // the HTTP timeout. Mods will be loaded from mods-list.json on
+            // next server start via --sync-mods.
+            var _tmpB64 = tmpB64;
+            var _saveDir = saveDir;
+            var _fileName = fileName;
+            var _id = id;
+            sys.thread.Thread.create(function() {
+                try {
+                    // Decode base64 using system command (fast on Python target)
+                    var decodeCmd = "base64 -d " + _tmpB64 + " > " + (_saveDir + "/" + _fileName);
+                    var proc = new sys.io.Process("bash", ["-c", decodeCmd]);
+                    proc.stdout.readAll().toString();
+                    proc.stderr.readAll().toString();
+                    var exitCode = proc.exitCode();
+                    proc.close();
+                    if (exitCode != 0) {
+                        haxe.Log.trace("apiUploadSave background: base64 decode failed with code " + exitCode);
+                        return;
+                    }
+                    haxe.Log.trace("apiUploadSave: wrote file to " + _saveDir + "/" + _fileName);
+                    sys.FileSystem.deleteFile(_tmpB64);
 
-            instance.save();
+                    // Clear mods so they get reloaded from mods-list.json on next start
+                    var inst = ServerInstance.getRegistered(_id);
+                    if (inst != null) {
+                        inst.mods = [];
+                        ServerInstance.saveAndRegister(inst);
+                    }
+                } catch (e:Dynamic) {
+                    haxe.Log.trace("apiUploadSave background: failed for " + _id + ": " + e);
+                    try {
+                        sys.FileSystem.deleteFile(_tmpB64);
+                    } catch (_:Dynamic) {}
+                }
+            });
+
             return server.json({ saveFile: fileName });
         } catch (e:Dynamic) {
+            haxe.Log.trace("apiUploadSave error: " + e);
             return server.jsonStatus(500, { error: "Failed to upload save: " + e });
         }
     }

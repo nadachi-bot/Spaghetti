@@ -217,6 +217,24 @@ class Api {
         );
     }
 
+    static public function getProcessLogs(
+        id:String, ?lines:Int, ?onSuccess:Dynamic->Void, ?onError:String->Void
+    ):Void {
+        Browser.window.fetch("/api/servers/" + id + "/process-logs", cast {
+            method: "GET",
+            credentials: "same-origin",
+            headers: if (lines != null) { "x-lines": lines } else {}
+        }).then(
+            (response:Dynamic) -> {
+                untyped response.json().then(
+                    (data:Dynamic) -> { if (onSuccess != null) onSuccess(data); },
+                    (_) -> { if (onError != null) onError("Parse error"); }
+                );
+            },
+            (err:Dynamic) -> { if (onError != null) onError("Network error"); }
+        );
+    }
+
     static public function sendConsole(
         id:String, command:String, ?onSuccess:Dynamic->Void, ?onError:String->Void
     ):Void {

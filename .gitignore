@@ -9,3 +9,4 @@ dist/*.hl
 dist/*.py
 *.pyc
 __pycache__/*
+*.pid

@@ -16,15 +16,22 @@ class FactorioManager {
     }
 
     /**
+     * Resolve a version string to an absolute version directory.
+     * "latest" is resolved to the actual latest version string.
+     */
+    public function getVersionDir(version:String):String {
+        if (version == "latest") {
+            version = getLatestVersion();
+        }
+        return "data/server/" + version;
+    }
+
+    /**
      * Get the path to the Factorio server headless binary for a given version.
      * Downloads the version if it doesn't exist locally.
      */
     public function getServerBinaryPath(version:String):String {
-        if (version == "latest") {
-            version = getLatestVersion();
-        }
-
-        var versionDir = "data/server/" + version;
+        var versionDir = getVersionDir(version);
         var binaryPath = versionDir + "/factorio/bin/x64/factorio";
 
         if (!sys.FileSystem.exists(binaryPath)) {
@@ -373,135 +380,6 @@ class FactorioManager {
     }
 
     /**
-     * Extract mods from a save file and return their info.
-     * Factorio level*.dat files are binary, so we use `strings` to extract mod names,
-     * then query the mod portal API for version details.
-     */
-    public function extractModsFromSave(savePath:String):Array<ModInfo> {
-        var result:Array<ModInfo> = [];
-        var seenModNames:Array<String> = [];
-
-        try {
-            // Factorio saves are zip files; we need to read level*.dat inside
-            // Saves may have nested structures (e.g., null2/level-init.dat)
-            var tempDir = "/tmp/factorio-save-extract-" + Date.now().getTime();
-            var mkdirProc = new sys.io.Process("mkdir", ["-p", tempDir]);
-            try { mkdirProc.exitCode(); } catch (e:Dynamic) {}
-            mkdirProc.close();
-
-            // Wrap with `timeout 30` to guarantee `readAll()` returns
-            var unzipProc = new sys.io.Process("timeout", ["30", "unzip", "-o", savePath, "-d", tempDir]);
-            // Must drain ALL output or process will block / throw Eof
-            unzipProc.stdout.readAll().toString();
-            unzipProc.stderr.readAll().toString();
-            try { unzipProc.exitCode(); } catch (e:Dynamic) {}
-            unzipProc.close();
-
-            // Recursively find level*.dat files
-            var levelFiles = findLevelFiles(tempDir);
-
-            for (levelFile in levelFiles) {
-                var modEntries = extractModNamesFromBinary(levelFile);
-                for (entry in modEntries) {
-                    // entry format: "modname:version"
-                    var colonIdx = entry.lastIndexOf(":");
-                    if (colonIdx < 0) continue;
-                    var modName = entry.substring(0, colonIdx);
-                    var binaryVersion = entry.substring(colonIdx + 1);
-
-                    if (!arrayContains(seenModNames, modName)) {
-                        seenModNames.push(modName);
-                        // Skip API calls here to avoid blocking the HTTP server.
-                        // Title can be fetched later via /api/mods/:name endpoint.
-                        result.push({
-                            name: modName,
-                            version: binaryVersion,
-                            title: modName
-                        });
-                    }
-                }
-            }
-
-            // Cleanup
-            var rmProc = new sys.io.Process("rm", ["-rf", tempDir]);
-            try { rmProc.exitCode(); } catch (e:Dynamic) {}
-            rmProc.close();
-        } catch (e:Dynamic) {
-            haxe.Log.trace("Failed to extract mods from save: " + e);
-        }
-
-        return result;
-    }
-
-    /**
-     * Extract mod names from a binary level data file using the `strings` command.
-     * We look for mod-data file patterns like `nullius_2.0.0.json` or `alien-biomes.0.7.3.json`
-     * which give us both mod name and version in one shot.
-     */
-    function extractModNamesFromBinary(levelFile:String):Array<String> {
-        var modNames:Array<String> = [];
-        var seen:Array<String> = [];
-
-        try {
-            // Wrap with `timeout 15` to guarantee `readAll()` returns
-            var stringsProc = new sys.io.Process("timeout", ["15", "strings", levelFile]);
-            var output = stringsProc.stdout.readAll().toString();
-            try { stringsProc.exitCode(); } catch (e:Dynamic) {}
-            stringsProc.close();
-
-            var lines = output.split("\n");
-            // Pattern: modname_version.json, modname_version.lua, modname.version.json
-            // Example: nullius_1.7.0.json, boblogistics_0.17.0.lua, alien-biomes.0.7.3.json
-            var modDataPattern = ~/^([a-zA-Z][a-zA-Z0-9_-]+)[_.](\d+\.\d+\.\d+)\.(json|lua)$/;
-
-            for (line in lines) {
-                if (line == "") continue;
-                if (modDataPattern.match(line)) {
-                    var modName = modDataPattern.matched(1);
-                    var version = modDataPattern.matched(2);
-                    if (!arrayContains(seen, modName)) {
-                        seen.push(modName);
-                        modNames.push(modName + ":" + version);
-                    }
-                }
-            }
-        } catch (e:Dynamic) {
-            haxe.Log.trace("Failed to extract strings from " + levelFile + ": " + e);
-        }
-
-        return modNames;
-    }
-
-    function arrayContains<T>(arr:Array<T>, val:Dynamic):Bool {
-        for (item in arr) {
-            if (item == val) return true;
-        }
-        return false;
-    }
-
-    /**
-     * Recursively find level*.dat files in a directory.
-     */
-    function findLevelFiles(dir:String):Array<String> {
-        var result:Array<String> = [];
-        if (!sys.FileSystem.exists(dir) || !sys.FileSystem.isDirectory(dir)) return result;
-
-        var entries = sys.FileSystem.readDirectory(dir);
-        for (entry in entries) {
-            var fullPath = dir + "/" + entry;
-            if (sys.FileSystem.isDirectory(fullPath)) {
-                result = result.concat(findLevelFiles(fullPath));
-            } else if (StringTools.endsWith(entry, ".dat")) {
-                // Skip .datmetadata and .dat0, .dat1 - we want level.dat or level-init.dat
-                if (entry == "level.dat" || StringTools.startsWith(entry, "level-")) {
-                    result.push(fullPath);
-                }
-            }
-        }
-        return result;
-    }
-
-    /**
      * Download text content from a URL.
      */
     function downloadText(url:String):String {
@@ -550,6 +428,42 @@ class FactorioManager {
         var proc = new sys.io.Process("curl", args);
         try { proc.exitCode(); } catch (e:Dynamic) {}
         proc.close();
+    }
+
+    /**
+     * Read the mods-list.json file generated by Factorio after --sync-mods.
+     * Returns an array of ModInfo for each mod in the save's requirements.
+     * Returns an empty array if the file doesn't exist or can't be parsed.
+     */
+    public function readModsListJson(modsDir:String):Array<ModInfo> {
+        var filePath = modsDir + "/mods-list.json";
+        if (!sys.FileSystem.exists(filePath)) return [];
+
+        var result:Array<ModInfo> = [];
+        try {
+            var content = sys.io.File.getContent(filePath);
+            var data = cast(haxe.Json.parse(content), Map<String, Dynamic>);
+
+            // mods-list.json is a map: { "mod-name": { "name": "...", "version": "...", "title": "..." } }
+            for (modKey in data.keys()) {
+                var modData = data.get(modKey);
+                if (modData == null) continue;
+
+                var name = getFallback(modData, "name", modKey);
+                var version = getFallback(modData, "version", "");
+                var title = getFallback(modData, "title", name);
+
+                result.push({
+                    name: cast(name, String),
+                    version: cast(version, String),
+                    title: cast(title, String)
+                });
+            }
+        } catch (e:Dynamic) {
+            haxe.Log.trace("Failed to parse mods-list.json: " + e);
+        }
+
+        return result;
     }
 
     function urlEncode(s:String):String {

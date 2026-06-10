@@ -303,7 +303,7 @@ class ServersPage {
     }
 
     static function refreshLogs():Void {
-        Api.getLogs(currentLogServer, 200,
+        Api.getProcessLogs(currentLogServer, 200,
             data -> {
                 var logArea = cast(query(logModal, "pre.log-area"), js.html.PreElement);
                 if (logArea == null) return;
@@ -313,6 +313,7 @@ class ServersPage {
                     for (l in lines) txt += l + "\n";
                 }
                 logArea.textContent = txt;
+                logArea.scrollTop = logArea.scrollHeight;
             },
             _ -> {}
         );
@@ -351,8 +352,12 @@ class ServersPage {
                 Api.sendConsole(id, cmd,
                     data -> {
                         output.textContent += "\n> " + cmd + "\n" + (data != null ? cast data.output : "");
+                        output.scrollTop = output.scrollHeight;
                     },
-                    err -> { output.textContent += "\nError: " + err; }
+                    err -> {
+                        output.textContent += "\nError: " + err;
+                        output.scrollTop = output.scrollHeight;
+                    }
                 );
                 cmdInput.value = "";
             }
@@ -374,6 +379,7 @@ class ServersPage {
                     for (l in lines) txt += l + "\n";
                 }
                 output.textContent = txt;
+                output.scrollTop = output.scrollHeight;
             },
             _ -> {}
         );

@@ -538,6 +538,23 @@ web_Api.getLogs = function(id,lines,onSuccess,onError) {
 		}
 	});
 };
+web_Api.getProcessLogs = function(id,lines,onSuccess,onError) {
+	window.fetch("/api/servers/" + id + "/process-logs",{ method : "GET", credentials : "same-origin", headers : lines != null ? { "x-lines" : lines} : { }}).then(function(response) {
+		return response.json().then(function(data) {
+			if(onSuccess != null) {
+				onSuccess(data);
+			}
+		},function(_) {
+			if(onError != null) {
+				onError("Parse error");
+			}
+		});
+	},function(err) {
+		if(onError != null) {
+			onError("Network error");
+		}
+	});
+};
 web_Api.sendConsole = function(id,command,onSuccess,onError) {
 	web_Api.request("POST","/api/servers/" + id + "/console",{ command : command},onSuccess,onError);
 };
@@ -1386,7 +1403,7 @@ web_ServersPage.openLogs = function(id) {
 	},3000);
 };
 web_ServersPage.refreshLogs = function() {
-	web_Api.getLogs(web_ServersPage.currentLogServer,200,function(data) {
+	web_Api.getProcessLogs(web_ServersPage.currentLogServer,200,function(data) {
 		var logArea = js_Boot.__cast(web_ServersPage.query(web_ServersPage.logModal,"pre.log-area") , HTMLPreElement);
 		if(logArea == null) {
 			return;
@@ -1402,6 +1419,7 @@ web_ServersPage.refreshLogs = function() {
 			}
 		}
 		logArea.textContent = txt;
+		logArea.scrollTop = logArea.scrollHeight;
 	},function(_) {
 	});
 };
@@ -1432,8 +1450,10 @@ web_ServersPage.openConsole = function(id) {
 		}
 		web_Api.sendConsole(id,cmd,function(data) {
 			output.textContent += "\n> " + cmd + "\n" + (data != null ? data.output : "");
+			output.scrollTop = output.scrollHeight;
 		},function(err) {
 			output.textContent += "\nError: " + err;
+			output.scrollTop = output.scrollHeight;
 		});
 		cmdInput.value = "";
 	});
@@ -1462,6 +1482,7 @@ web_ServersPage.refreshConsoleLog = function() {
 			}
 		}
 		output.textContent = txt;
+		output.scrollTop = output.scrollHeight;
 	},function(_) {
 	});
 };

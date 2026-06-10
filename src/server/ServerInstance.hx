@@ -126,6 +126,11 @@ class ServerInstance {
                         var data = haxe.Json.parse(json);
                         var instance = new ServerInstance();
                         instance.id = safeStr(data.id, "");
+                        // Skip instances with empty IDs to prevent routing issues
+                        if (instance.id == "") {
+                            haxe.Log.trace("Skipping instance file with empty ID: " + entry);
+                            continue;
+                        }
                         instance.name = safeStr(data.name, "");
                         instance.password = safeStr(data.password, "");
                         instance.admins = safeArr(data.admins);
@@ -194,6 +199,27 @@ class ServerInstance {
         _withMutex(function() {
             if (registry != null) registry.remove(id);
         });
+    }
+
+    /**
+     * Get a single instance from the in-memory registry by id.
+     * Returns null if not found.
+     */
+    static public function getRegistered(id:String):Null<ServerInstance> {
+        var result:Null<ServerInstance> = null;
+        _withMutex(function() {
+            if (registry != null) result = registry.get(id);
+        });
+        return result;
+    }
+
+    /**
+     * Execute a function inside the registry mutex.
+     * Public so that background threads (e.g., mod extraction) can safely
+     * update instance state via saveAndRegister.
+     */
+    static public function withMutex(f:Void->Void):Void {
+        _withMutex(f);
     }
 
     static public function parseMods(rawMods:Dynamic):Array<ModEntry> {

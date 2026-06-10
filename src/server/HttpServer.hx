@@ -157,11 +157,27 @@ class HttpServer {
 
                     var body = "";
                     if (contentLength > 0) {
-                        body = client.input.readString(contentLength);
+                        // Read body in chunks to avoid issues with large payloads
+                        // on the Python target where readString(n) may hang.
+                        var remaining = contentLength;
+                        var sb = new StringBuf();
+                        while (remaining > 0) {
+                            var chunkSize = remaining;
+                            if (chunkSize > 8192) chunkSize = 8192;
+                            var chunk = client.input.readString(chunkSize);
+                            if (chunk == "" || chunk == null) break;
+                            sb.add(chunk);
+                            remaining -= chunk.length;
+                        }
+                        body = sb.toString();
                     }
 
                     // Parse request line
                     var requestParts = headerLines[0].split(" ");
+                    // Strip query string from path (e.g., "/api/servers?id=1" -> "/api/servers")
+                    var path = requestParts[1];
+                    var qIdx = path.indexOf("?");
+                    if (qIdx >= 0) path = path.substring(0, qIdx);
                     var headers:Map<String, String> = new Map();
                     for (i in 1...headerLines.length) {
                         var line = headerLines[i];
@@ -182,7 +198,7 @@ class HttpServer {
 
                     return {
                         method: requestParts[0],
-                        path: requestParts[1],
+                        path: path,
                         headers: headers,
                         body: body,
                         params: new Map()

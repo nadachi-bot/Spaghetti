@@ -116,14 +116,15 @@ echo -e "${GREEN}Build successful${NC}"
 echo ""
 
 # --------------------------------------------------
-# Ensure test save exists
+# Ensure test save file is available for upload
 # ------------------------------------------------–
 echo -e "${YELLOW}Verifying test save file...${NC}"
-if [ ! -f "$PROJECT_DIR/data/saves/1780434878_5895/game_save.zip" ]; then
-    echo -e "${RED}Test save file not found!${NC}"
+TEST_SAVE_FILE="$SCRIPT_DIR/test_data/game_save.zip"
+if [ ! -f "$TEST_SAVE_FILE" ]; then
+    echo -e "${RED}Test save file not found at $TEST_SAVE_FILE !${NC}"
     exit 1
 fi
-echo -e "${GREEN}Test save file exists${NC}"
+echo -e "${GREEN}Test save file ready for upload${NC}"
 echo ""
 
 # --------------------------------------------------
@@ -158,8 +159,7 @@ echo "Test Suite: Create Server Instance"
 CREATE_RESPONSE=$(curl -s -X POST "$API_BASE/api/servers" \
     -H "Content-Type: application/json" \
     -d '{
-        "name": "Test Nullius Server",
-        "saveFile": "1780434878_5895/game_save.zip"
+        "name": "Test Nullius Server"
     }')
 
 echo "Create response: $CREATE_RESPONSE"
@@ -177,29 +177,65 @@ fi
 echo ""
 
 # --------------------------------------------------
-# Test 3: Verify mod extraction from save
+# Test 2b: Upload save file via the upload-save endpoint
 # ------------------------------------------------–
+echo "Test Suite: Upload Save File"
+
+# Read the test save file, base64 encode it, and upload via the API.
+# Use a temp file for the payload to avoid "Argument list too long" errors.
+TEST_SAVE_BASE64=$(base64 -w 0 "$SCRIPT_DIR/test_data/game_save.zip")
+UPLOAD_TMPFILE=$(mktemp)
+echo -n "{\"fileName\":\"game_save.zip\",\"fileData\":\"${TEST_SAVE_BASE64}\"}" > "$UPLOAD_TMPFILE"
+UPLOAD_RESPONSE=$(curl -s -X POST "$API_BASE/api/servers/$SERVER_ID/upload-save" \
+    -H "Content-Type: application/json" \
+    -d @"$UPLOAD_TMPFILE")
+rm -f "$UPLOAD_TMPFILE"
+echo "Upload response: $UPLOAD_RESPONSE"
+
+if echo "$UPLOAD_RESPONSE" | grep -q '"saveFile"'; then
+    echo -e "  ${GREEN}✓${NC} Save file uploaded successfully"
+    TESTS_PASSED=$((TESTS_PASSED + 1))
+else
+    echo -e "  ${RED}✗${NC} Save file upload failed"
+    TESTS_FAILED=$((TESTS_FAILED + 1))
+fi
+
+echo ""
+
+# --------------------------------------------------
+# Test 3: Verify mod extraction from uploaded save
+# -------------------------------------------------
 echo "Test Suite: Mod Extraction"
 
-# Update the server config with the save file path
-UPDATE_RESPONSE=$(curl -s -X PUT "$API_BASE/api/servers/$SERVER_ID/config" \
-    -H "Content-Type: application/json" \
-    -d "{
-        \"saveFile\": \"1780434878_5895/game_save.zip\",
-        \"name\": \"Test Nullius Server\"
-    }")
+# Mod extraction happens asynchronously (base64 decode + zip extract run in
+# a background thread).  Poll the config endpoint until mods appear or
+# the timeout is reached — same pattern used for server startup.
+echo -e "${YELLOW}Polling for mod extraction to complete (timeout 60s)...${NC}"
+MAX_WAIT=60
+WAITED=0
+MOD_COUNT=0
+CONFIG_RESPONSE=""
 
-# Get the server config to verify mods were extracted
-CONFIG_RESPONSE=$(curl -s "$API_BASE/api/servers/$SERVER_ID/config")
+while [ $WAITED -lt $MAX_WAIT ]; do
+    sleep 2
+    WAITED=$((WAITED + 2))
+
+    CONFIG_RESPONSE=$(curl -s "$API_BASE/api/servers/$SERVER_ID/config")
+    MOD_COUNT=$(echo "$CONFIG_RESPONSE" | jq '.mods | length' 2>/dev/null)
+
+    if [ "$MOD_COUNT" != "null" ] && [ "$MOD_COUNT" -gt 0 ] 2>/dev/null; then
+        echo -e "  ${GREEN}✓${NC} Mods extracted (after ${WAITED}s)"
+        TESTS_PASSED=$((TESTS_PASSED + 1))
+        break
+    fi
+
+    echo -e "  ${YELLOW}⏳${NC} Still extracting mods... (${WAITED}s)"
+done
+
 echo "Server config: $CONFIG_RESPONSE"
-
-MOD_COUNT=$(echo "$CONFIG_RESPONSE" | jq '.mods | length' 2>/dev/null)
 echo "Mod count: $MOD_COUNT"
 
-if [ "$MOD_COUNT" != "null" ] && [ "$MOD_COUNT" -gt 0 ] 2>/dev/null; then
-    echo -e "  ${GREEN}✓${NC} Mods extracted from save (count: $MOD_COUNT)"
-    TESTS_PASSED=$((TESTS_PASSED + 1))
-    
+if [ "$MOD_COUNT" -gt 0 ] 2>/dev/null; then
     # Verify specific mods from Nullius pack
     if echo "$CONFIG_RESPONSE" | jq -r '.mods[].name' 2>/dev/null | grep -q "base"; then
         echo -e "  ${GREEN}✓${NC} Base mod found in extracted mods"
@@ -207,7 +243,7 @@ if [ "$MOD_COUNT" != "null" ] && [ "$MOD_COUNT" -gt 0 ] 2>/dev/null; then
     else
         echo -e "  ${YELLOW}⚠${NC} Base mod not found (may be optional)"
     fi
-    
+
     if echo "$CONFIG_RESPONSE" | jq -r '.mods[].name' 2>/dev/null | grep -q "nullius"; then
         echo -e "  ${GREEN}✓${NC} Nullius mod found in extracted mods"
         TESTS_PASSED=$((TESTS_PASSED + 1))
@@ -215,7 +251,7 @@ if [ "$MOD_COUNT" != "null" ] && [ "$MOD_COUNT" -gt 0 ] 2>/dev/null; then
         echo -e "  ${YELLOW}⚠${NC} Nullius mod not found (expected in save)"
     fi
 else
-    echo -e "  ${RED}✗${NC} No mods extracted from save file"
+    echo -e "  ${RED}✗${NC} No mods extracted from save file (timeout after ${WAITED}s)"
     TESTS_FAILED=$((TESTS_FAILED + 1))
 fi
 
@@ -257,15 +293,16 @@ else
     TESTS_FAILED=$((TESTS_FAILED + 1))
 fi
 
-# Poll for server to actually reach running state (up to 60s)
-echo -e "${YELLOW}Polling for server to reach running state (timeout 60s)...${NC}"
-MAX_WAIT=60
+# Poll for server to actually reach running state (up to 240s — mod sync
+# can take up to 180s when downloading mods from the portal)
+echo -e "${YELLOW}Polling for server to reach running state (timeout 240s)...${NC}"
+MAX_WAIT=240
 WAITED=0
 SERVER_RUNNING=false
 
 while [ $WAITED -lt $MAX_WAIT ]; do
-    sleep 3
-    WAITED=$((WAITED + 3))
+    sleep 5
+    WAITED=$((WAITED + 5))
 
     LIST_RESP=$(curl -s "$API_BASE/api/servers")
     RUNNING=$(echo "$LIST_RESP" | jq --arg id "$SERVER_ID" '[.[] | select(.id == $id)][0].running' 2>/dev/null)
