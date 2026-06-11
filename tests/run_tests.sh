@@ -202,63 +202,8 @@ fi
 
 echo ""
 
-# --------------------------------------------------
-# Test 3: Verify mod extraction from uploaded save
-# -------------------------------------------------
-echo "Test Suite: Mod Extraction"
-
-# Mod extraction happens asynchronously (base64 decode + zip extract run in
-# a background thread).  Poll the config endpoint until mods appear or
-# the timeout is reached — same pattern used for server startup.
-echo -e "${YELLOW}Polling for mod extraction to complete (timeout 60s)...${NC}"
-MAX_WAIT=60
-WAITED=0
-MOD_COUNT=0
-CONFIG_RESPONSE=""
-
-while [ $WAITED -lt $MAX_WAIT ]; do
-    sleep 2
-    WAITED=$((WAITED + 2))
-
-    CONFIG_RESPONSE=$(curl -s "$API_BASE/api/servers/$SERVER_ID/config")
-    MOD_COUNT=$(echo "$CONFIG_RESPONSE" | jq '.mods | length' 2>/dev/null)
-
-    if [ "$MOD_COUNT" != "null" ] && [ "$MOD_COUNT" -gt 0 ] 2>/dev/null; then
-        echo -e "  ${GREEN}✓${NC} Mods extracted (after ${WAITED}s)"
-        TESTS_PASSED=$((TESTS_PASSED + 1))
-        break
-    fi
-
-    echo -e "  ${YELLOW}⏳${NC} Still extracting mods... (${WAITED}s)"
-done
-
-echo "Server config: $CONFIG_RESPONSE"
-echo "Mod count: $MOD_COUNT"
-
-if [ "$MOD_COUNT" -gt 0 ] 2>/dev/null; then
-    # Verify specific mods from Nullius pack
-    if echo "$CONFIG_RESPONSE" | jq -r '.mods[].name' 2>/dev/null | grep -q "base"; then
-        echo -e "  ${GREEN}✓${NC} Base mod found in extracted mods"
-        TESTS_PASSED=$((TESTS_PASSED + 1))
-    else
-        echo -e "  ${YELLOW}⚠${NC} Base mod not found (may be optional)"
-    fi
-
-    if echo "$CONFIG_RESPONSE" | jq -r '.mods[].name' 2>/dev/null | grep -q "nullius"; then
-        echo -e "  ${GREEN}✓${NC} Nullius mod found in extracted mods"
-        TESTS_PASSED=$((TESTS_PASSED + 1))
-    else
-        echo -e "  ${YELLOW}⚠${NC} Nullius mod not found (expected in save)"
-    fi
-else
-    echo -e "  ${RED}✗${NC} No mods extracted from save file (timeout after ${WAITED}s)"
-    TESTS_FAILED=$((TESTS_FAILED + 1))
-fi
-
-echo ""
-
 # ------------------------------------------------–
-# Test 4: List servers
+# Test 3: List servers
 # ------------------------------------------------–
 echo "Test Suite: List Servers"
 
@@ -327,6 +272,42 @@ done
 
 if [ "$SERVER_RUNNING" = "false" ] && [ "$WAITED" -ge $MAX_WAIT ]; then
     echo -e "  ${RED}✗${NC} Server did not start within ${MAX_WAIT}s timeout"
+    TESTS_FAILED=$((TESTS_FAILED + 1))
+fi
+
+echo ""
+
+# --------------------------------------------------
+# Test 5b: Verify mod extraction (happens during server start via --sync-mods)
+# -------------------------------------------------
+echo "Test Suite: Mod Extraction"
+
+CONFIG_RESPONSE=$(curl -s "$API_BASE/api/servers/$SERVER_ID/config")
+MOD_COUNT=$(echo "$CONFIG_RESPONSE" | jq '.mods | length' 2>/dev/null)
+
+echo "Server config: $CONFIG_RESPONSE"
+echo "Mod count: $MOD_COUNT"
+
+if [ "$MOD_COUNT" != "null" ] && [ "$MOD_COUNT" -gt 0 ] 2>/dev/null; then
+    echo -e "  ${GREEN}✓${NC} Mods extracted after server start (count: $MOD_COUNT)"
+    TESTS_PASSED=$((TESTS_PASSED + 1))
+
+    # Verify specific mods from Nullius pack
+    if echo "$CONFIG_RESPONSE" | jq -r '.mods[].name' 2>/dev/null | grep -q "base"; then
+        echo -e "  ${GREEN}✓${NC} Base mod found in extracted mods"
+        TESTS_PASSED=$((TESTS_PASSED + 1))
+    else
+        echo -e "  ${YELLOW}⚠${NC} Base mod not found (may be optional)"
+    fi
+
+    if echo "$CONFIG_RESPONSE" | jq -r '.mods[].name' 2>/dev/null | grep -q "nullius"; then
+        echo -e "  ${GREEN}✓${NC} Nullius mod found in extracted mods"
+        TESTS_PASSED=$((TESTS_PASSED + 1))
+    else
+        echo -e "  ${YELLOW}⚠${NC} Nullius mod not found (expected in save)"
+    fi
+else
+    echo -e "  ${RED}✗${NC} No mods extracted from save file after server start"
     TESTS_FAILED=$((TESTS_FAILED + 1))
 fi
 
