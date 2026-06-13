@@ -87,6 +87,9 @@ class Main {
 
         // API: Save file upload
         server.post("/api/servers/:id/upload-save", apiUploadSave);
+
+        // API: Sync mods
+        server.post("/api/servers/:id/sync-mods", apiSyncMods);
     }
 
     // --- Web UI serving ---
@@ -148,8 +151,7 @@ class Main {
     }
 
     static function apiListServers(req:HttpServerRequest):HttpServer.Response {
-        var instances = processManager.getAllProcesses();
-        return server.json(instances);
+        return server.jsonStr(processManager.getAllProcessesJson());
     }
 
     static function apiCreateServer(req:HttpServerRequest):HttpServer.Response {
@@ -285,6 +287,7 @@ class Main {
             if (data.autosaveInterval != null) instance.autosaveInterval = cast data.autosaveInterval;
             if (data.autosaveSlots != null) instance.autosaveSlots = cast data.autosaveSlots;
             if (data.maxPlayers != null) instance.maxPlayers = cast data.maxPlayers;
+            if (data.serverPort != null) instance.serverPort = cast data.serverPort;
             if (data.version != null) instance.version = cast data.version;
             instance.saveFile = newSaveFile;
             if (data.mods != null) instance.mods = ServerInstance.parseMods(data.mods);
@@ -501,14 +504,7 @@ class Main {
     static function apiUploadSave(req:HttpServerRequest):HttpServer.Response {
         var id = req.params.get("id");
         try {
-            var instances = ServerInstance.list();
-            var instance = null;
-            for (i in instances) {
-                if (i.id == id) {
-                    instance = i;
-                    break;
-                }
-            }
+            var instance = ServerInstance.getRegistered(id);
             if (instance == null) {
                 return server.jsonStatus(404, { error: "Server not found" });
             }
@@ -529,9 +525,6 @@ class Main {
             if (commaIdx > 0) base64Data = fileData.substring(commaIdx + 1);
 
             // Decode base64 to bytes and save to instance's saves directory.
-            // haxe.crypto.Base64.decode on the Python target is O(n^2) and blocks
-            // for minutes on large files (~3MB base64). We defer the decode to a
-            // background thread by writing the base64 to a temp file first.
             var saveDir = instance.savesDir();
             ensureDir(saveDir);
             var tmpB64 = saveDir + "/_upload.b64";
@@ -541,40 +534,41 @@ class Main {
             instance.saveFile = fileName;
             ServerInstance.saveAndRegister(instance);
 
-            // Decode base64 in the background so the response returns within
-            // the HTTP timeout. Mods will be loaded from mods-list.json on
-            // next server start via --sync-mods.
-            var _tmpB64 = tmpB64;
-            var _saveDir = saveDir;
-            var _fileName = fileName;
-            var _id = id;
+            // Decode base64 using system command (avoids O(n^2) haxe.crypto.Base64
+            // on the Python target).
+            try {
+                var decodeCmd = "base64 -d " + tmpB64 + " > " + (saveDir + "/" + fileName);
+                var proc = new sys.io.Process("bash", ["-c", decodeCmd]);
+                proc.stdout.readAll().toString();
+                proc.stderr.readAll().toString();
+                var exitCode = proc.exitCode();
+                proc.close();
+                if (exitCode != 0) {
+                    haxe.Log.trace("apiUploadSave: base64 decode failed with code " + exitCode);
+                    try { sys.FileSystem.deleteFile(tmpB64); } catch (_:Dynamic) {}
+                    return server.jsonStatus(500, { error: "Failed to decode file" });
+                }
+                haxe.Log.trace("apiUploadSave: wrote file to " + saveDir + "/" + fileName);
+                sys.FileSystem.deleteFile(tmpB64);
+            } catch (e:Dynamic) {
+                haxe.Log.trace("apiUploadSave: decode error: " + e);
+                try { sys.FileSystem.deleteFile(tmpB64); } catch (_:Dynamic) {}
+                return server.jsonStatus(500, { error: "Failed to decode file: " + e });
+            }
+
+            // Clear mods and spawn a background thread for sync so the HTTP
+            // response returns immediately (sync can take 30-300s and would
+            // otherwise block the modal from closing on the frontend).
+            instance.mods = [];
+            ServerInstance.saveAndRegister(instance);
+
+            var captureInstance = instance;
+            var captureFactorioManager = factorioManager;
             sys.thread.Thread.create(function() {
                 try {
-                    // Decode base64 using system command (fast on Python target)
-                    var decodeCmd = "base64 -d " + _tmpB64 + " > " + (_saveDir + "/" + _fileName);
-                    var proc = new sys.io.Process("bash", ["-c", decodeCmd]);
-                    proc.stdout.readAll().toString();
-                    proc.stderr.readAll().toString();
-                    var exitCode = proc.exitCode();
-                    proc.close();
-                    if (exitCode != 0) {
-                        haxe.Log.trace("apiUploadSave background: base64 decode failed with code " + exitCode);
-                        return;
-                    }
-                    haxe.Log.trace("apiUploadSave: wrote file to " + _saveDir + "/" + _fileName);
-                    sys.FileSystem.deleteFile(_tmpB64);
-
-                    // Clear mods so they get reloaded from mods-list.json on next start
-                    var inst = ServerInstance.getRegistered(_id);
-                    if (inst != null) {
-                        inst.mods = [];
-                        ServerInstance.saveAndRegister(inst);
-                    }
+                    captureFactorioManager.syncMods(captureInstance);
                 } catch (e:Dynamic) {
-                    haxe.Log.trace("apiUploadSave background: failed for " + _id + ": " + e);
-                    try {
-                        sys.FileSystem.deleteFile(_tmpB64);
-                    } catch (_:Dynamic) {}
+                    haxe.Log.trace("Background mod sync failed for " + id + ": " + e);
                 }
             });
 
@@ -582,6 +576,21 @@ class Main {
         } catch (e:Dynamic) {
             haxe.Log.trace("apiUploadSave error: " + e);
             return server.jsonStatus(500, { error: "Failed to upload save: " + e });
+        }
+    }
+
+    static function apiSyncMods(req:HttpServerRequest):HttpServer.Response {
+        var id = req.params.get("id");
+        try {
+            var instance = ServerInstance.getRegistered(id);
+            if (instance == null) {
+                return server.jsonStatus(404, { error: "Server not found" });
+            }
+
+            factorioManager.syncMods(instance);
+            return server.jsonStatus(200, { status: "synced" });
+        } catch (e:Dynamic) {
+            return server.jsonStatus(500, { error: "Failed to sync mods: " + e });
         }
     }
 

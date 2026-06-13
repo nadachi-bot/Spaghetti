@@ -35,8 +35,25 @@ class HttpServer {
     var socket:sys.net.Socket;
     var routes:Array<HttpRoute>;
 
+    function setReuseAddress(sock:sys.net.Socket):Void {
+        #if python
+        try {
+            // On the Python target sys.net.Socket wraps a Python socket.socket
+            // stored in the internal _hx___s field. Calling setsockopt with
+            // SOL_SOCKET=1, SO_REUSEADDR=2, value=1 lets us rebind a port
+            // immediately after the old process exits, avoiding TIME_WAIT.
+            var handle = Reflect.field(sock, "_hx___s");
+            Reflect.field(handle, "setsockopt")(1, 2, 1);
+        } catch (e:Dynamic) {
+            haxe.Log.trace("Warning: SO_REUSEADDR could not be set: " + e);
+        }
+        #else
+        #end
+    }
+
     public function new(port:Int) {
         this.socket = new sys.net.Socket();
+        setReuseAddress(this.socket);
         this.socket.setBlocking(true);
         this.socket.bind(new sys.net.Host("0.0.0.0"), port);
         this.socket.listen(128);
@@ -307,6 +324,18 @@ class HttpServer {
             statusText: getStatusText(code),
             headers: headers,
             body: haxe.Json.stringify(data)
+        };
+    }
+
+    /** Return a JSON response from a pre-serialized string. */
+    public function jsonStr(body:String):Response {
+        var headers:Map<String, String> = new Map();
+        headers.set("Content-Type", "application/json");
+        return {
+            status: 200,
+            statusText: "OK",
+            headers: headers,
+            body: body
         };
     }
 

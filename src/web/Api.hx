@@ -305,6 +305,12 @@ class Api {
         request("DELETE", "/api/servers/" + id + "/mods/remove", { name: modName }, onSuccess, onError);
     }
 
+    static public function syncMods(
+        id:String, ?onSuccess:Dynamic->Void, ?onError:String->Void
+    ):Void {
+        request("POST", "/api/servers/" + id + "/sync-mods", null, onSuccess, onError);
+    }
+
     /* -----------------------------------------------------------------
        Save file upload
        ----------------------------------------------------------------- */

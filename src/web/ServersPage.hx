@@ -159,6 +159,7 @@ class ServersPage {
         }
         btn("Logs", "btn", actions, _ -> openLogs(srv.id));
         btn("Console", "btn", actions, _ -> openConsole(srv.id));
+        btn("Sync Mods", "btn", actions, _ -> syncMods(srv.id));
         btn("Edit", "btn", actions, _ -> window.location.href = "/edit/" + srv.id);
         btn("Delete", "btn btn-delete", actions, _ -> confirmDelete(srv.id));
     }
@@ -270,6 +271,13 @@ class ServersPage {
             _ -> { toast("Server stopped", false); transitionStates.remove(id); loadServers(); },
             err -> { toast(err, true); transitionStates.remove(id); loadServers(); },
             () -> renderServerList(__serverSnapshot)
+        );
+    }
+
+    static function syncMods(id:String):Void {
+        Api.syncMods(id,
+            _ -> { toast("Mods synced", false); },
+            err -> toast("Sync failed: " + err, true)
         );
     }
 

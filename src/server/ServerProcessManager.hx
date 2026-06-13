@@ -177,8 +177,9 @@ class ServerProcessManager {
             sys.FileSystem.createDirectory(instance.savesDir());
         }
 
-        // Sync mods (downloads mod zips + reads mod-list.json to populate instance.mods)
-        this.factorioManager.syncMods(instance);
+        // Don't sync mods here — sync only when a save is first uploaded.
+        // Running sync on every start would remove any manually-added mods
+        // that are not listed in the save's requirements.
 
         // Get binary path
         var binary = this.factorioManager.getServerBinaryPath(instance.version);
@@ -192,7 +193,8 @@ class ServerProcessManager {
             portOffset += idChars.charCodeAt(j);
             j++;
         }
-        var port = portBase + (portOffset % 1000);
+        var port = if (instance.serverPort > 0) instance.serverPort
+                   else portBase + (portOffset % 1000);
 
         // Build command arguments
         var args = ["--server-settings", ServerSettings.settingsPath(instance.id)];
@@ -207,6 +209,14 @@ class ServerProcessManager {
         args.push(Std.string(port));
         args.push("--console-log");
         args.push(logPath);
+
+        // Tell Factorio where the per-instance mods live.
+        // syncMods populates this directory with mod-list.json + .zip files.
+        if (!sys.FileSystem.exists(instance.modsDir())) {
+            sys.FileSystem.createDirectory(instance.modsDir());
+        }
+        args.push("--mod-directory");
+        args.push(instance.modsDir());
 
         // Add admin whitelist
         if (instance.admins != null && instance.admins.length > 0) {
@@ -678,9 +688,37 @@ class ServerProcessManager {
     }
 
     /**
+     * Get all running processes info as a pre-serialized JSON string.
+     * The registry iteration and JSON serialization happen inside the
+     * mutex so the background mod-sync thread can't replace instance.mods
+     * mid-serialization.
+     */
+    public function getAllProcessesJson():String {
+        var sb = new StringBuf();
+        ServerInstance.withMutexEach(function(regMap) {
+            var result:Array<ServerInstance> = [];
+            for (id in regMap.keys()) {
+                var instance = regMap.get(id);
+                instance.running = this.isRunning(instance.id);
+                instance.starting = this.isStarting(instance.id);
+                instance.stopping = this.isStopping(instance.id);
+                instance.startFailed = this.hasStartFailed(instance.id);
+                if (instance.startFailed) {
+                    instance.startFailMessage = this.getStartFailMessage(instance.id);
+                }
+                result.push(instance);
+            }
+            sb.add(haxe.Json.stringify(result));
+        });
+        return sb.toString();
+    }
+
+    /**
      * Get all running processes info.
      * Each instance includes live state flags (running, starting, stopping, startFailed)
      * computed from the backend process manager.
+     * @deprecated Use getAllProcessesJson() to avoid race conditions with
+     * background mod sync. Kept for backward compatibility.
      */
     public function getAllProcesses():Array<ServerInstance> {
         var result:Array<ServerInstance> = [];

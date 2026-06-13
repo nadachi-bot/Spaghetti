@@ -582,6 +582,9 @@ web_Api.addMod = function(id,name,title,version,onSuccess,onError) {
 web_Api.removeMod = function(id,modName,onSuccess,onError) {
 	web_Api.request("DELETE","/api/servers/" + id + "/mods/remove",{ name : modName},onSuccess,onError);
 };
+web_Api.syncMods = function(id,onSuccess,onError) {
+	web_Api.request("POST","/api/servers/" + id + "/sync-mods",null,onSuccess,onError);
+};
 web_Api.uploadSaveFile = function(id,file,onSuccess,onError) {
 	var reader = new FileReader();
 	reader.onload = function(e) {
@@ -779,6 +782,7 @@ web_EditPage.buildFormSkeleton = function() {
 	web_EditPage.field("Server Name",null,form);
 	web_EditPage.field("Server Password",null,form);
 	web_EditPage.field("Max Players",null,form);
+	web_EditPage.field("Network Port","0 = auto-assigned",form);
 	web_EditPage.field("Autosave Interval (minutes)",null,form);
 	web_EditPage.field("Autosave Slots",null,form);
 	web_EditPage.field("Save File",null,form);
@@ -821,13 +825,16 @@ web_EditPage.populateForm = function(cfg) {
 	var maxInput = web_EditPage.input("number",null,Std.string(cfg.maxPlayers),"form-input",fields[2]);
 	maxInput.setAttribute("min","1");
 	maxInput.setAttribute("max","100");
-	var autoInput = web_EditPage.input("number",null,Std.string(cfg.autosaveInterval),"form-input",fields[3]);
+	var portInput = web_EditPage.input("number",null,Std.string(cfg.serverPort != null ? cfg.serverPort : 0),"form-input",fields[3]);
+	portInput.setAttribute("min","0");
+	portInput.setAttribute("max","65535");
+	var autoInput = web_EditPage.input("number",null,Std.string(cfg.autosaveInterval),"form-input",fields[4]);
 	autoInput.setAttribute("min","1");
 	autoInput.setAttribute("max","60");
-	var slotsInput = web_EditPage.input("number",null,Std.string(cfg.autosaveSlots),"form-input",fields[4]);
+	var slotsInput = web_EditPage.input("number",null,Std.string(cfg.autosaveSlots),"form-input",fields[5]);
 	slotsInput.setAttribute("min","1");
 	slotsInput.setAttribute("max","20");
-	var saveField = fields[5];
+	var saveField = fields[6];
 	web_EditPage.clear(saveField);
 	web_EditPage.label("Save File","field-label",saveField);
 	var saveRow = web_EditPage.div("save-field-row",saveField);
@@ -873,11 +880,11 @@ web_EditPage.populateForm = function(cfg) {
 			web_EditPage.toast("Upload failed: " + err,true);
 		});
 	});
-	var verSelect = web_EditPage.query(fields[6],"select");
+	var verSelect = web_EditPage.query(fields[7],"select");
 	if(verSelect != null) {
 		web_EditPage.selectedVersion = cfg.version != null ? cfg.version : "latest";
 	}
-	var adminsInput = web_EditPage.input("text",null,"","form-input",fields[7]);
+	var adminsInput = web_EditPage.input("text",null,"","form-input",fields[8]);
 	if(cfg.admins != null) {
 		adminsInput.value = cfg.admins.join(", ");
 	}
@@ -983,7 +990,7 @@ web_EditPage.loadVersions = function() {
 		if(fields.length < 7) {
 			return;
 		}
-		var verSelect = web_EditPage.query(fields[6],"select");
+		var verSelect = web_EditPage.query(fields[7],"select");
 		if(verSelect == null) {
 			return;
 		}
@@ -1019,11 +1026,12 @@ web_EditPage.doSave = function() {
 	var nameInput = web_EditPage.query(fields[0],"input");
 	var passInput = web_EditPage.query(fields[1],"input");
 	var maxInput = web_EditPage.query(fields[2],"input");
-	var autoInput = web_EditPage.query(fields[3],"input");
-	var slotsInput = web_EditPage.query(fields[4],"input");
-	var saveInput = web_EditPage.query(fields[5],".save-file-input");
-	var verSelect = web_EditPage.query(fields[6],"select");
-	var adminsInput = web_EditPage.query(fields[7],"input");
+	var portInput = web_EditPage.query(fields[3],"input");
+	var autoInput = web_EditPage.query(fields[4],"input");
+	var slotsInput = web_EditPage.query(fields[5],"input");
+	var saveInput = web_EditPage.query(fields[6],".save-file-input");
+	var verSelect = web_EditPage.query(fields[7],"select");
+	var adminsInput = web_EditPage.query(fields[8],"input");
 	var admins = [];
 	if(adminsInput != null && StringTools.trim(adminsInput.value) != "") {
 		var parts = adminsInput.value.split(",");
@@ -1037,7 +1045,7 @@ web_EditPage.doSave = function() {
 			}
 		}
 	}
-	var config = { name : nameInput != null ? nameInput.value : "", password : passInput != null ? passInput.value : "", maxPlayers : maxInput != null ? Std.parseInt(maxInput.value) : 16, autosaveInterval : autoInput != null ? Std.parseInt(autoInput.value) : 5, autosaveSlots : slotsInput != null ? Std.parseInt(slotsInput.value) : 5, saveFile : saveInput != null ? saveInput.value : "", version : verSelect != null ? verSelect.value : "latest", admins : admins};
+	var config = { name : nameInput != null ? nameInput.value : "", password : passInput != null ? passInput.value : "", maxPlayers : maxInput != null ? Std.parseInt(maxInput.value) : 16, serverPort : portInput != null ? Std.parseInt(portInput.value) : 0, autosaveInterval : autoInput != null ? Std.parseInt(autoInput.value) : 5, autosaveSlots : slotsInput != null ? Std.parseInt(slotsInput.value) : 5, saveFile : saveInput != null ? saveInput.value : "", version : verSelect != null ? verSelect.value : "latest", admins : admins};
 	if(web_EditPage.serverConfig != null && web_EditPage.serverConfig.mods != null) {
 		config.mods = web_EditPage.serverConfig.mods;
 	}
@@ -1251,6 +1259,9 @@ web_ServersPage.renderServerCard = function(srv) {
 	web_ServersPage.btn("Console","btn",actions,function(_) {
 		web_ServersPage.openConsole(srv.id);
 	});
+	web_ServersPage.btn("Sync Mods","btn",actions,function(_) {
+		web_ServersPage.syncMods(srv.id);
+	});
 	web_ServersPage.btn("Edit","btn",actions,function(_) {
 		var tmp = Std.string(srv.id);
 		window.location.href = "/edit/" + tmp;
@@ -1370,6 +1381,13 @@ web_ServersPage.stopServer = function(id) {
 		web_ServersPage.loadServers();
 	},function() {
 		web_ServersPage.renderServerList(web_ServersPage.__serverSnapshot);
+	});
+};
+web_ServersPage.syncMods = function(id) {
+	web_Api.syncMods(id,function(_) {
+		web_ServersPage.toast("Mods synced",false);
+	},function(err) {
+		web_ServersPage.toast("Sync failed: " + err,true);
 	});
 };
 web_ServersPage.confirmDelete = function(id) {

@@ -11,6 +11,7 @@ class ServerInstance {
     public var autosaveInterval:Int;
     public var autosaveSlots:Int;
     public var maxPlayers:Int;
+    public var serverPort:Int; // network port; 0 = auto
     public var version:String; // "latest" or specific version string
     public var saveFile:String; // filename of the save
     public var mods:Array<ModEntry>;
@@ -31,6 +32,7 @@ class ServerInstance {
         this.autosaveInterval = 5;
         this.autosaveSlots = 5;
         this.maxPlayers = 16;
+        this.serverPort = 0;
         this.version = "latest";
         this.saveFile = "";
         this.mods = [];
@@ -137,6 +139,7 @@ class ServerInstance {
                         instance.autosaveInterval = safeInt(data.autosaveInterval, 5);
                         instance.autosaveSlots = safeInt(data.autosaveSlots, 5);
                         instance.maxPlayers = safeInt(data.maxPlayers, 16);
+                        instance.serverPort = safeInt(data.serverPort, 0);
                         instance.version = safeStr(data.version, "latest");
                         instance.saveFile = safeStr(data.saveFile, "");
                         instance.mods = parseMods(data.mods);
@@ -220,6 +223,31 @@ class ServerInstance {
      */
     static public function withMutex(f:Void->Void):Void {
         _withMutex(f);
+    }
+
+    /**
+     * Run a callback with direct access to the registry map while holding
+     * the mutex. The callback receives the registry so it can iterate and
+     * build deep copies / snapshots without re-acquiring the lock.
+     */
+    static public function withMutexEach(f:Map<String, ServerInstance>->Void):Void {
+        _withMutex(function() { f(registry); });
+    }
+
+    /**
+     * Like withMutex but returns the callback's result. Used by
+     * getAllProcesses to deep-copy the instance list under the mutex
+     * so JSON serialization can't race with background mod sync.
+     */
+    static public function withMutexReturn<T>(f:Void->T):T {
+        mutex.acquire();
+        try {
+            return f();
+        } catch (e:Dynamic) {
+            mutex.release();
+            throw e;
+        }
+        mutex.release();
     }
 
     static public function parseMods(rawMods:Dynamic):Array<ModEntry> {

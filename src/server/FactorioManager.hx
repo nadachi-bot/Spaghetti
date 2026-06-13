@@ -273,8 +273,8 @@ class FactorioManager {
         haxe.Log.trace("Syncing mods: " + binaryPath + " " + args.join(" "));
 
         try {
-            // Wrap with `timeout 180` (3 min) to guarantee `readAll()` returns
-            var proc = new sys.io.Process("timeout", ["180", binaryPath].concat(args));
+            // Wrap with `timeout 600` (10 min) to guarantee `readAll()` returns
+            var proc = new sys.io.Process("timeout", ["600", binaryPath].concat(args));
 
             // Drain stdout and stderr (Factorio outputs download progress)
             var stdout = proc.stdout.readAll().toString();
@@ -283,7 +283,7 @@ class FactorioManager {
             proc.close();
 
             if (exitCode != null && exitCode == 124) {
-                haxe.Log.trace("Mod sync timed out (180s) for instance " + instance.id);
+                haxe.Log.trace("Mod sync timed out (300s) for instance " + instance.id);
             }
 
             var stdoutTrunc = if (stdout.length > 800) stdout.substring(0, 800) + "..." else stdout;
@@ -296,17 +296,21 @@ class FactorioManager {
             // the list was empty before sync (first start scenario).
             var modInfos = readModListJson(modsDir);
             if (modInfos.length > 0) {
-                instance.mods = [];
-                for (modInfo in modInfos) {
-                    var me = new ModEntry();
-                    me.name = modInfo.name;
-                    me.title = modInfo.title;
-                    me.version = modInfo.version;
-                    me.enabled = true;
-                    instance.mods.push(me);
-                }
-                instance.save();
-                haxe.Log.trace("Loaded " + instance.mods.length + " mods from mod-list.json for " + instance.id);
+                // Use the registry mutex so concurrent HTTP handlers (e.g.,
+                // apiListServers) don't serialize a partially-built mods array.
+                ServerInstance.withMutex(function() {
+                    instance.mods = [];
+                    for (modInfo in modInfos) {
+                        var me = new ModEntry();
+                        me.name = modInfo.name;
+                        me.title = modInfo.title;
+                        me.version = modInfo.version;
+                        me.enabled = true;
+                        instance.mods.push(me);
+                    }
+                    instance.save();
+                    haxe.Log.trace("Loaded " + instance.mods.length + " mods from mod-list.json for " + instance.id);
+                });
                 // Clean up any mods that are in the directory but disabled in config
                 removeDisabledMods(instance, modsDir);
             }

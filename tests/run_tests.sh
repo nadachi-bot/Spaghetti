@@ -355,6 +355,94 @@ fi
 echo ""
 
 # ------------------------------------------------–
+# Test 6b: Verify mods actually loaded in Factorio process
+# -------------------------------------------------
+echo "Test Suite: Mod Loading Verification"
+
+# Factorio outputs mod information during startup to its process log
+# (factorio-current.log), not the --console-log file. The process-logs
+# endpoint returns the full Factorio process output including:
+#   - "XXX active mods"
+#   - Individual mod loading messages (e.g., "Loading mod: nullius")
+#   - Mod loading progress ("Loading 0/XX mods")
+#
+# Without the --mod-directory flag, Factorio only loads core mods even
+# when mod .zip files exist in the per-instance directory.
+
+MOD_LOGS_RESPONSE=""
+MOD_LOG_MAX_WAIT=30
+MOD_LOG_WAITED=0
+
+# Use process-logs endpoint for full Factorio output (includes mod loading)
+while [ $MOD_LOG_WAITED -lt $MOD_LOG_MAX_WAIT ]; do
+    sleep 3
+    MOD_LOG_WAITED=$((MOD_LOG_WAITED + 3))
+    MOD_LOGS_RESPONSE=$(curl -s "$API_BASE/api/servers/$SERVER_ID/process-logs")
+
+    if [ -n "$MOD_LOGS_RESPONSE" ] && [ "$MOD_LOGS_RESPONSE" != "[]" ]; then
+        LINE_COUNT=$(echo "$MOD_LOGS_RESPONSE" | jq 'length' 2>/dev/null)
+        # We need enough log lines for mod loading to have been written
+        if [ "$LINE_COUNT" != "null" ] && [ "$LINE_COUNT" -gt 10 ] 2>/dev/null; then
+            break
+        fi
+    fi
+    echo -e "  ${YELLOW}⏳${NC} Waiting for mod loading evidence in process logs... (${MOD_LOG_WAITED}s)"
+done
+
+if [ -n "$MOD_LOGS_RESPONSE" ] && [ "$MOD_LOGS_RESPONSE" != "[]" ]; then
+    LINE_COUNT=$(echo "$MOD_LOGS_RESPONSE" | jq 'length' 2>/dev/null)
+    echo -e "  ${GREEN}✓${NC} Retrieved $LINE_COUNT process log lines for mod verification (after ${MOD_LOG_WAITED}s)"
+    TESTS_PASSED=$((TESTS_PASSED + 1))
+
+    # Check for evidence of mod loading
+    MOD_EVIDENCE=false
+    DETECTED_MODS=""
+
+    # Check for specific non-core mod names in logs (nullius, space-expanse, etc.)
+    if echo "$MOD_LOGS_RESPONSE" | grep -qi "nullius"; then
+        MOD_EVIDENCE=true
+        DETECTED_MODS="nullius"
+    fi
+    if echo "$MOD_LOGS_RESPONSE" | grep -qi "space.expanse"; then
+        MOD_EVIDENCE=true
+        DETECTED_MODS="$DETECTED_MODS,space-expanse"
+    fi
+    if echo "$MOD_LOGS_RESPONSE" | grep -qi "in-game-editor"; then
+        MOD_EVIDENCE=true
+        DETECTED_MODS="$DETECTED_MODS,in-game-editor"
+    fi
+
+    # Check for mod loading progress indicators ("Loading X/XX mods")
+    if echo "$MOD_LOGS_RESPONSE" | grep -qE "Loading [0-9]+/[0-9]+ mods"; then
+        MOD_EVIDENCE=true
+    fi
+
+    # Check for mod list indicators ("XX active mods" or "XX mods active")
+    if echo "$MOD_LOGS_RESPONSE" | grep -qE "[0-9]+.*(active )?mods"; then
+        MOD_EVIDENCE=true
+    fi
+
+    if [ "$MOD_EVIDENCE" = "true" ]; then
+        echo -e "  ${GREEN}✓${NC} Found evidence of non-core mods loading in Factorio process logs"
+        TESTS_PASSED=$((TESTS_PASSED + 1))
+        if [ -n "$DETECTED_MODS" ]; then
+            echo "  Detected mods: $DETECTED_MODS"
+        fi
+    else
+        echo -e "  ${RED}✗${NC} No evidence of non-core mods loading in Factorio process logs"
+        echo "  This suggests the --mod-directory flag may not be set correctly"
+        echo "  Last log lines:"
+        echo "$MOD_LOGS_RESPONSE" | jq -r '.[-10:][]' 2>/dev/null | tail -10
+        TESTS_FAILED=$((TESTS_FAILED + 1))
+    fi
+else
+    echo -e "  ${RED}✗${NC} Could not retrieve process logs for mod loading verification (after ${MOD_LOG_WAITED}s)"
+    TESTS_FAILED=$((TESTS_FAILED + 1))
+fi
+
+echo ""
+
+# ------------------------------------------------–
 # Test 7: Duplicate server prevention
 # ------------------------------------------------–
 echo "Test Suite: Duplicate Server Prevention"

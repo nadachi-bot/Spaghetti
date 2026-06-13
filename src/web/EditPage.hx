@@ -138,6 +138,7 @@ class EditPage {
         field("Server Name", null, form);
         field("Server Password", null, form);
         field("Max Players", null, form);
+        field("Network Port", "0 = auto-assigned", form);
         field("Autosave Interval (minutes)", null, form);
         field("Autosave Slots", null, form);
         field("Save File", null, form);
@@ -196,16 +197,20 @@ class EditPage {
         maxInput.setAttribute("min", "1");
         maxInput.setAttribute("max", "100");
 
-        var autoInput = input("number", null, Std.string(cfg.autosaveInterval), "form-input", fields[3]);
+        var portInput = input("number", null, Std.string(cfg.serverPort != null ? cfg.serverPort : 0), "form-input", fields[3]);
+        portInput.setAttribute("min", "0");
+        portInput.setAttribute("max", "65535");
+
+        var autoInput = input("number", null, Std.string(cfg.autosaveInterval), "form-input", fields[4]);
         autoInput.setAttribute("min", "1");
         autoInput.setAttribute("max", "60");
 
-        var slotsInput = input("number", null, Std.string(cfg.autosaveSlots), "form-input", fields[4]);
+        var slotsInput = input("number", null, Std.string(cfg.autosaveSlots), "form-input", fields[5]);
         slotsInput.setAttribute("min", "1");
         slotsInput.setAttribute("max", "20");
 
         /* --- Save file row: text input + hidden file picker + Upload button --- */
-        var saveField = fields[5];
+        var saveField = fields[6];
         clear(saveField);
         label("Save File", "field-label", saveField);
 
@@ -258,12 +263,12 @@ class EditPage {
             );
         });
 
-        var verSelect:js.html.SelectElement = cast query(fields[6], "select");
+        var verSelect:js.html.SelectElement = cast query(fields[7], "select");
         if (verSelect != null) {
             selectedVersion = cfg.version != null ? cfg.version : "latest";
         }
 
-        var adminsInput = input("text", null, "", "form-input", fields[7]);
+        var adminsInput = input("text", null, "", "form-input", fields[8]);
         if (cfg.admins != null) {
             adminsInput.value = cfg.admins.join(", ");
         }
@@ -370,7 +375,7 @@ class EditPage {
                 var fields:Array<js.html.Element> = queryAll(form, ".form-field");
                 if (fields.length < 7) return;
 
-                var verSelect:js.html.SelectElement = cast query(fields[6], "select");
+                var verSelect:js.html.SelectElement = cast query(fields[7], "select");
                 if (verSelect == null) return;
 
                 while (verSelect.firstChild != null) verSelect.removeChild(verSelect.firstChild);
@@ -407,11 +412,12 @@ class EditPage {
         var nameInput:js.html.InputElement = cast query(fields[0], "input");
         var passInput:js.html.InputElement = cast query(fields[1], "input");
         var maxInput:js.html.InputElement = cast query(fields[2], "input");
-        var autoInput:js.html.InputElement = cast query(fields[3], "input");
-        var slotsInput:js.html.InputElement = cast query(fields[4], "input");
-        var saveInput:js.html.InputElement = cast query(fields[5], ".save-file-input");
-        var verSelect:js.html.SelectElement = cast query(fields[6], "select");
-        var adminsInput:js.html.InputElement = cast query(fields[7], "input");
+        var portInput:js.html.InputElement = cast query(fields[3], "input");
+        var autoInput:js.html.InputElement = cast query(fields[4], "input");
+        var slotsInput:js.html.InputElement = cast query(fields[5], "input");
+        var saveInput:js.html.InputElement = cast query(fields[6], ".save-file-input");
+        var verSelect:js.html.SelectElement = cast query(fields[7], "select");
+        var adminsInput:js.html.InputElement = cast query(fields[8], "input");
 
         var admins:Array<String> = [];
         if (adminsInput != null && StringTools.trim(adminsInput.value) != "") {
@@ -426,6 +432,7 @@ class EditPage {
             name: if (nameInput != null) nameInput.value else "",
             password: if (passInput != null) passInput.value else "",
             maxPlayers: if (maxInput != null) Std.parseInt(maxInput.value) else 16,
+            serverPort: if (portInput != null) Std.parseInt(portInput.value) else 0,
             autosaveInterval: if (autoInput != null) Std.parseInt(autoInput.value) else 5,
             autosaveSlots: if (slotsInput != null) Std.parseInt(slotsInput.value) else 5,
             saveFile: if (saveInput != null) saveInput.value else "",
