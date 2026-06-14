@@ -1232,8 +1232,15 @@ web_ServersPage.renderServerCard = function(srv) {
 	var card = web_ServersPage.div("server-card",web_ServersPage.serverList);
 	var header = web_ServersPage.div("card-header",card);
 	web_ServersPage.spn(srv.name != null ? srv.name : srv.id,"server-name",header);
-	var statusText = web_ServersPage.transitionStates.h[srv.id] != null ? web_ServersPage.transitionStates.h[srv.id] == "starting" ? "⟳ Starting..." : "⟳ Stopping..." : srv.running ? "● Running" : "○ Stopped";
-	var statusClass = web_ServersPage.transitionStates.h[srv.id] != null ? "status transitioning" : srv.running ? "status running" : "status stopped";
+	var statusText;
+	var statusClass;
+	if(web_ServersPage.transitionStates.h[srv.id] != null) {
+		statusText = web_ServersPage.transitionStates.h[srv.id] == "starting" ? "⟳ Starting..." : "⟳ Stopping...";
+		statusClass = "status transitioning";
+	} else {
+		statusText = srv.running ? "● Running" : "○ Stopped";
+		statusClass = srv.running ? "status running" : "status stopped";
+	}
 	web_ServersPage.spn(statusText,statusClass,header);
 	var info = web_ServersPage.div("card-info",card);
 	web_ServersPage.spn("Version: " + Std.string(srv.version),null,info);
@@ -1241,8 +1248,11 @@ web_ServersPage.renderServerCard = function(srv) {
 	if(srv.mods != null && srv.mods.length > 0) {
 		web_ServersPage.spn("  |  " + Std.string(srv.mods.length) + " mods",null,info);
 	}
+	if(srv.syncingMods) {
+		web_ServersPage.spn("  |  ⟳ Syncing mods...","syncing-indicator",info);
+	}
 	var actions = web_ServersPage.div("card-actions",card);
-	if(web_ServersPage.transitionStates.h[srv.id] != null) {
+	if(web_ServersPage.transitionStates.h[srv.id] != null || srv.syncingMods) {
 		web_ServersPage.btn("-","btn btn-disabled",actions);
 	} else if(srv.running) {
 		web_ServersPage.btn("Stop","btn btn-stop",actions,function(_) {
@@ -1259,8 +1269,10 @@ web_ServersPage.renderServerCard = function(srv) {
 	web_ServersPage.btn("Console","btn",actions,function(_) {
 		web_ServersPage.openConsole(srv.id);
 	});
-	web_ServersPage.btn("Sync Mods","btn",actions,function(_) {
-		web_ServersPage.syncMods(srv.id);
+	web_ServersPage.btn("Sync Mods","btn" + (srv.syncingMods ? " btn-disabled" : ""),actions,function(_) {
+		if(!srv.syncingMods) {
+			web_ServersPage.syncMods(srv.id);
+		}
 	});
 	web_ServersPage.btn("Edit","btn",actions,function(_) {
 		var tmp = Std.string(srv.id);
@@ -1385,9 +1397,37 @@ web_ServersPage.stopServer = function(id) {
 };
 web_ServersPage.syncMods = function(id) {
 	web_Api.syncMods(id,function(_) {
-		web_ServersPage.toast("Mods synced",false);
+		web_ServersPage.toast("Mod sync started",false);
+		web_ServersPage.loadServers();
+		web_ServersPage._pollUntilSyncFinished(id);
 	},function(err) {
 		web_ServersPage.toast("Sync failed: " + err,true);
+	});
+};
+web_ServersPage._pollUntilSyncFinished = function(id,retries) {
+	if(retries == null) {
+		retries = 0;
+	}
+	if(retries > 60) {
+		return;
+	}
+	web_Api.listServers(function(servers) {
+		var srvArr = servers;
+		var _g = 0;
+		while(_g < srvArr.length) {
+			var srv = srvArr[_g];
+			++_g;
+			if(srv.id == id && srv.syncingMods) {
+				web_ServersPage.renderServerList(srvArr);
+				window.setTimeout(function() {
+					web_ServersPage._pollUntilSyncFinished(id,retries + 1);
+				},1500);
+				return;
+			}
+		}
+		web_ServersPage.toast("Mods synced",false);
+		web_ServersPage.renderServerList(srvArr);
+	},function(_) {
 	});
 };
 web_ServersPage.confirmDelete = function(id) {

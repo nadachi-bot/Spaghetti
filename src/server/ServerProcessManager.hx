@@ -20,6 +20,7 @@ class ServerProcessManager {
     var stoppingStates:Map<String, Bool>;
     var startFailedStates:Map<String, Bool>;
     var startFailMessages:Map<String, String>;
+    var syncingStates:Map<String, Bool>;
 
     public function new(factorio:FactorioManager, config:Config) {
         this.processes = new Map();
@@ -29,6 +30,7 @@ class ServerProcessManager {
         this.stoppingStates = new Map();
         this.startFailedStates = new Map();
         this.startFailMessages = new Map();
+        this.syncingStates = new Map();
     }
 
     /**
@@ -402,6 +404,20 @@ class ServerProcessManager {
     }
 
     /**
+     * Check if a server is currently syncing mods.
+     */
+    public function isSyncingMods(id:String):Bool {
+        return syncingStates.exists(id) && syncingStates.get(id);
+    }
+
+    /**
+     * Set/clear the syncing-mods flag for a server.
+     */
+    public function setSyncingMods(id:String, v:Bool):Void {
+        syncingStates.set(id, v);
+    }
+
+    /**
      * Synchronous delete: stop the instance if running, wait for stop to finish,
      * then remove process entry and config file. Runs on the caller thread
      * (HTTP handler) so the delete is complete before the response is sent.
@@ -703,6 +719,7 @@ class ServerProcessManager {
                 instance.starting = this.isStarting(instance.id);
                 instance.stopping = this.isStopping(instance.id);
                 instance.startFailed = this.hasStartFailed(instance.id);
+                instance.syncingMods = this.isSyncingMods(instance.id);
                 if (instance.startFailed) {
                     instance.startFailMessage = this.getStartFailMessage(instance.id);
                 }
@@ -728,6 +745,7 @@ class ServerProcessManager {
             instance.starting = this.isStarting(instance.id);
             instance.stopping = this.isStopping(instance.id);
             instance.startFailed = this.hasStartFailed(instance.id);
+            instance.syncingMods = this.isSyncingMods(instance.id);
             if (instance.startFailed) {
                 instance.startFailMessage = this.getStartFailMessage(instance.id);
             }

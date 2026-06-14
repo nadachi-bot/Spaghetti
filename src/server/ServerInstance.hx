@@ -23,6 +23,7 @@ class ServerInstance {
     public var stopping:Bool;
     public var startFailed:Bool;
     public var startFailMessage:String;
+    public var syncingMods:Bool;
 
     public function new() {
         this.id = "";
@@ -42,6 +43,7 @@ class ServerInstance {
         this.stopping = false;
         this.startFailed = false;
         this.startFailMessage = "";
+        this.syncingMods = false;
     }
 
     static public function instancesDir():String {

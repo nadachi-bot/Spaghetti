@@ -561,15 +561,20 @@ class Main {
             // otherwise block the modal from closing on the frontend).
             instance.mods = [];
             ServerInstance.saveAndRegister(instance);
+            processManager.setSyncingMods(id, true);
 
             var captureInstance = instance;
             var captureFactorioManager = factorioManager;
+            var captureId = id;
             sys.thread.Thread.create(function() {
+                var syncOk = true;
                 try {
                     captureFactorioManager.syncMods(captureInstance);
                 } catch (e:Dynamic) {
-                    haxe.Log.trace("Background mod sync failed for " + id + ": " + e);
+                    haxe.Log.trace("Background mod sync failed for " + captureId + ": " + e);
+                    syncOk = false;
                 }
+                processManager.setSyncingMods(captureId, false);
             });
 
             return server.json({ saveFile: fileName });
@@ -587,10 +592,26 @@ class Main {
                 return server.jsonStatus(404, { error: "Server not found" });
             }
 
-            factorioManager.syncMods(instance);
-            return server.jsonStatus(200, { status: "synced" });
+            if (processManager.isSyncingMods(id)) {
+                return server.jsonStatus(409, { error: "Mod sync already in progress" });
+            }
+
+            processManager.setSyncingMods(id, true);
+            var captureInstance = instance;
+            var captureFactorioManager = factorioManager;
+            var captureId = id;
+            sys.thread.Thread.create(function() {
+                try {
+                    captureFactorioManager.syncMods(captureInstance);
+                } catch (e:Dynamic) {
+                    haxe.Log.trace("Manual mod sync failed for " + captureId + ": " + e);
+                }
+                processManager.setSyncingMods(captureId, false);
+            });
+
+            return server.json({ status: "syncing" });
         } catch (e:Dynamic) {
-            return server.jsonStatus(500, { error: "Failed to sync mods: " + e });
+            return server.jsonStatus(500, { error: "Failed to start mod sync: " + e });
         }
     }
 

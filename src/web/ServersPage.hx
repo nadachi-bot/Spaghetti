@@ -136,21 +136,27 @@ class ServersPage {
 
         var header = div("card-header", card);
         spn(srv.name != null ? srv.name : srv.id, "server-name", header);
-        var statusText = transitionStates.get(srv.id) != null ?
-            (transitionStates.get(srv.id) == "starting" ? "⟳ Starting..." : "⟳ Stopping...") :
-            (srv.running ? "● Running" : "○ Stopped");
-        var statusClass = transitionStates.get(srv.id) != null ?
-            "status transitioning" :
-            (srv.running ? "status running" : "status stopped");
+
+        // Determine primary status (start/stop transition takes priority over sync)
+        var statusText:String;
+        var statusClass:String;
+        if (transitionStates.get(srv.id) != null) {
+            statusText = transitionStates.get(srv.id) == "starting" ? "⟳ Starting..." : "⟳ Stopping...";
+            statusClass = "status transitioning";
+        } else {
+            statusText = srv.running ? "● Running" : "○ Stopped";
+            statusClass = srv.running ? "status running" : "status stopped";
+        }
         spn(statusText, statusClass, header);
 
         var info = div("card-info", card);
         spn("Version: " + srv.version, null, info);
         spn("  Max: " + srv.maxPlayers + " players", null, info);
         if (srv.mods != null && srv.mods.length > 0) spn("  |  " + srv.mods.length + " mods", null, info);
+        if (srv.syncingMods) spn("  |  ⟳ Syncing mods...", "syncing-indicator", info);
 
         var actions = div("card-actions", card);
-        if (transitionStates.get(srv.id) != null) {
+        if (transitionStates.get(srv.id) != null || srv.syncingMods) {
             btn("-", "btn btn-disabled", actions);
         } else if (srv.running) {
             btn("Stop", "btn btn-stop", actions, _ -> stopServer(srv.id));
@@ -159,7 +165,9 @@ class ServersPage {
         }
         btn("Logs", "btn", actions, _ -> openLogs(srv.id));
         btn("Console", "btn", actions, _ -> openConsole(srv.id));
-        btn("Sync Mods", "btn", actions, _ -> syncMods(srv.id));
+        btn("Sync Mods", "btn" + (srv.syncingMods ? " btn-disabled" : ""), actions, _ -> {
+            if (!srv.syncingMods) syncMods(srv.id);
+        });
         btn("Edit", "btn", actions, _ -> window.location.href = "/edit/" + srv.id);
         btn("Delete", "btn btn-delete", actions, _ -> confirmDelete(srv.id));
     }
@@ -276,8 +284,33 @@ class ServersPage {
 
     static function syncMods(id:String):Void {
         Api.syncMods(id,
-            _ -> { toast("Mods synced", false); },
+            _ -> {
+                toast("Mod sync started", false);
+                loadServers();
+                _pollUntilSyncFinished(id);
+            },
             err -> toast("Sync failed: " + err, true)
+        );
+    }
+
+    static function _pollUntilSyncFinished(id:String, retries:Int = 0):Void {
+        if (retries > 60) return; // Max ~90s polling
+
+        Api.listServers(
+            servers -> {
+                var srvArr:Array<Dynamic> = cast servers;
+                for (srv in srvArr) {
+                    if (srv.id == id && srv.syncingMods) {
+                        renderServerList(srvArr);
+                        js.Browser.window.setTimeout(() -> _pollUntilSyncFinished(id, retries + 1), 1500);
+                        return;
+                    }
+                }
+                // Sync finished
+                toast("Mods synced", false);
+                renderServerList(srvArr);
+            },
+            _ -> {}
         );
     }
 
