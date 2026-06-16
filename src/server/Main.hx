@@ -367,21 +367,7 @@ class Main {
     }
 
     static function apiSearchMods(req:HttpServerRequest):HttpServer.Response {
-        var q = req.headers.get("q") ?? req.params.get("q") ?? "";
-        // Query string parsing
-        var fullPath = req.path;
-        var queryStart = fullPath.indexOf("?");
-        if (queryStart >= 0) {
-            var queryStr = fullPath.substring(queryStart + 1);
-            var pairs = queryStr.split("&");
-            for (pair in pairs) {
-                var parts = pair.split("=");
-                if (parts.length == 2 && parts[0] == "q") {
-                    q = parts[1];
-                }
-            }
-        }
-
+        var q = req.params.get("q") ?? "";
         var results = factorioManager.searchMods(q);
         return server.json(results);
     }

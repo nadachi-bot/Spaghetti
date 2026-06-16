@@ -12,6 +12,8 @@ class EditPage {
     static var selectedVersion:String = "";
     static var modListContainer:js.html.DivElement = null;
     static var modSearchInput:js.html.InputElement = null;
+    static var modSearchResults:js.html.DivElement = null;
+    static var cachedSearchResults:Array<Dynamic> = [];
 
     /* -------- Main entry -------- */
     static public function render():Void {
@@ -161,10 +163,13 @@ class EditPage {
         var sectionHeader = el("h2", "section-title", section);
         sectionHeader.textContent = "Mods";
 
-        /* Search + Add row */
+        /* Search row */
         var searchRow = div("mod-search-row", section);
         modSearchInput = input("text", "Search mod portal...", null, "form-input mod-search-input", searchRow);
-        btn("Search & Add", "btn mod-add-btn", searchRow, doSearchAndAdd);
+        btn("Search", "btn mod-add-btn", searchRow, doSearchMods);
+
+        /* Search results container */
+        modSearchResults = div("mod-search-results", section);
 
         /* Mod list container */
         modListContainer = div("mod-list", section);
@@ -323,8 +328,8 @@ class EditPage {
         }
     }
 
-    /* -------- Search & Add mod -------- */
-    static function doSearchAndAdd():Void {
+    /* -------- Search mods -------- */
+    static function doSearchMods():Void {
         var searchText = StringTools.trim(modSearchInput.value);
         if (searchText == "") {
             toast("Enter a mod name to search", true);
@@ -336,22 +341,47 @@ class EditPage {
                 var results:Array<Dynamic> = cast data;
                 if (results == null || results.length == 0) {
                     toast("No mods found for: " + searchText, true);
+                    clear(modSearchResults);
                     return;
                 }
-                var first = results[0];
-                var modName = first.name != null ? first.name : first.id != null ? first.id : searchText;
-                var modTitle = first.title != null ? first.title : modName;
-                var modVersion = first.version != null ? first.version : "";
 
-                Api.addMod(serverId, modName, modTitle, modVersion,
-                    _ -> {
-                        toast("Added mod: " + modTitle, false);
-                        loadServerConfig();
-                    },
-                    err -> toast("Failed to add mod: " + err, true)
-                );
+                cachedSearchResults = results;
+                renderSearchResults(results);
             },
             err -> toast("Search failed: " + err, true)
+        );
+    }
+
+    static function renderSearchResults(results:Array<Dynamic>):Void {
+        clear(modSearchResults);
+
+        var header = spn("Search results:", "mod-search-header", modSearchResults);
+
+        for (result in results) {
+            var modName = result.name != null ? result.name : result.id != null ? result.id : "unknown";
+            var modTitle = result.title != null ? result.title : modName;
+            var modVersion = result.version != null ? result.version : "";
+
+            var row = div("mod-search-result-row", modSearchResults);
+
+            var info = div("mod-search-info", row);
+            spn(modTitle, "mod-title", info);
+            spn("@" + modName + (modVersion != "" ? " (v" + modVersion + ")" : ""), "mod-name", info);
+
+            btn("Add", "btn btn-mod-add", row, () -> doAddSearchedMod(modName, modTitle, modVersion));
+        }
+    }
+
+    /* -------- Add selected mod from search -------- */
+    static function doAddSearchedMod(modName:String, modTitle:String, modVersion:String):Void {
+        Api.addMod(serverId, modName, modTitle, modVersion,
+            _ -> {
+                toast("Added mod: " + modTitle, false);
+                clear(modSearchResults);
+                cachedSearchResults = [];
+                loadServerConfig();
+            },
+            err -> toast("Failed to add mod: " + err, true)
         );
     }
 

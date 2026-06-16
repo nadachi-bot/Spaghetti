@@ -377,10 +377,13 @@ class FactorioManager {
             try { proc.exitCode(); } catch (e:Dynamic) {}
             proc.close();
 
-            if (result == null || result == "") return [];
+            if (result == null || result == "") {
+                return [];
+            }
             var data = haxe.Json.parse(result);
             var rawMods = getFallback(data, "modList", getFallback(data, "mods", getFallback(data, "results", [])));
-            return cast(rawMods, Array<Dynamic>);
+            var modsArr = cast(rawMods, Array<Dynamic>);
+            return modsArr;
         } catch (e:Dynamic) {
             haxe.Log.trace("Mod search failed: " + e);
             return [];

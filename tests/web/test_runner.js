@@ -96,6 +96,7 @@ import runCrudTests from './tests/crud.test.js';
 import runSettingsTests from './tests/settings.test.js';
 import runIntegrationTests from './tests/integration.test.js';
 import runLifecycleTests from './tests/server_lifecycle.test.js';
+import runModSearchTests from './tests/mod_search.test.js';
 
 /* -----------------------------------------------------------
    Main
@@ -118,7 +119,7 @@ import runLifecycleTests from './tests/server_lifecycle.test.js';
 
   // 4. Start server
   console.log('\x1b[1;33mStarting server...\x1b[0m');
-  const server = spawn('hl', ['dist/server.hl'], {
+  const server = spawn('python3', ['dist/server.py'], {
     cwd: PROJECT_DIR,
     stdio: ['ignore', 'pipe', 'pipe'],
     env: { ...process.env }
@@ -167,6 +168,9 @@ import runLifecycleTests from './tests/server_lifecycle.test.js';
 
     console.log('\n--- Server Lifecycle ---');
     await runLifecycleTests(browser, runner);
+
+    console.log('\n--- Mod Search ---');
+    await runModSearchTests(browser, runner);
   } finally {
     await browser.close();
     server.kill('SIGTERM');

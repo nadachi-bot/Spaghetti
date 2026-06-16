@@ -274,7 +274,8 @@ class Api {
     static public function searchMods(
         query:String, ?onSuccess:Dynamic->Void, ?onError:String->Void
     ):Void {
-        request("GET", "/api/mods/search?q=" + query, null, onSuccess, onError);
+        var encoded : String = untyped encodeURIComponent(query);
+        request("GET", "/api/mods/search?q=" + encoded, null, onSuccess, onError);
     }
 
     static public function getModDetails(

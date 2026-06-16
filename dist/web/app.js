@@ -568,7 +568,8 @@ web_Api.getVersions = function(onSuccess,onError) {
 	web_Api.request("GET","/api/versions",null,onSuccess,onError);
 };
 web_Api.searchMods = function(query,onSuccess,onError) {
-	web_Api.request("GET","/api/mods/search?q=" + query,null,onSuccess,onError);
+	var encoded = encodeURIComponent(query);
+	web_Api.request("GET","/api/mods/search?q=" + encoded,null,onSuccess,onError);
 };
 web_Api.getModDetails = function(name,onSuccess,onError) {
 	web_Api.request("GET","/api/mods/" + name,null,onSuccess,onError);
@@ -799,7 +800,8 @@ web_EditPage.buildModsSection = function(parent) {
 	sectionHeader.textContent = "Mods";
 	var searchRow = web_EditPage.div("mod-search-row",section);
 	web_EditPage.modSearchInput = web_EditPage.input("text","Search mod portal...",null,"form-input mod-search-input",searchRow);
-	web_EditPage.btn("Search & Add","btn mod-add-btn",searchRow,web_EditPage.doSearchAndAdd);
+	web_EditPage.btn("Search","btn mod-add-btn",searchRow,web_EditPage.doSearchMods);
+	web_EditPage.modSearchResults = web_EditPage.div("mod-search-results",section);
 	web_EditPage.modListContainer = web_EditPage.div("mod-list",section);
 	var emptyMsg = web_EditPage.spn("No mods loaded","mod-empty-msg",web_EditPage.modListContainer);
 };
@@ -946,7 +948,7 @@ web_EditPage.renderModList = function(mods) {
 		})(mod));
 	}
 };
-web_EditPage.doSearchAndAdd = function() {
+web_EditPage.doSearchMods = function() {
 	var searchText = StringTools.trim(web_EditPage.modSearchInput.value);
 	if(searchText == "") {
 		web_EditPage.toast("Enter a mod name to search",true);
@@ -956,20 +958,44 @@ web_EditPage.doSearchAndAdd = function() {
 		var results = data;
 		if(results == null || results.length == 0) {
 			web_EditPage.toast("No mods found for: " + searchText,true);
+			web_EditPage.clear(web_EditPage.modSearchResults);
 			return;
 		}
-		var first = results[0];
-		var modName = first.name != null ? first.name : first.id != null ? first.id : searchText;
-		var modTitle = first.title != null ? first.title : modName;
-		var modVersion = first.version != null ? first.version : "";
-		web_Api.addMod(web_EditPage.serverId,modName,modTitle,modVersion,function(_) {
-			web_EditPage.toast("Added mod: " + modTitle,false);
-			web_EditPage.loadServerConfig();
-		},function(err) {
-			web_EditPage.toast("Failed to add mod: " + err,true);
-		});
+		web_EditPage.cachedSearchResults = results;
+		web_EditPage.renderSearchResults(results);
 	},function(err) {
 		web_EditPage.toast("Search failed: " + err,true);
+	});
+};
+web_EditPage.renderSearchResults = function(results) {
+	web_EditPage.clear(web_EditPage.modSearchResults);
+	var header = web_EditPage.spn("Search results:","mod-search-header",web_EditPage.modSearchResults);
+	var _g = 0;
+	while(_g < results.length) {
+		var result = results[_g];
+		++_g;
+		var modName = [result.name != null ? result.name : result.id != null ? result.id : "unknown"];
+		var modTitle = [result.title != null ? result.title : modName[0]];
+		var modVersion = [result.version != null ? result.version : ""];
+		var row = web_EditPage.div("mod-search-result-row",web_EditPage.modSearchResults);
+		var info = web_EditPage.div("mod-search-info",row);
+		web_EditPage.spn(modTitle[0],"mod-title",info);
+		web_EditPage.spn("@" + modName[0] + (modVersion[0] != "" ? " (v" + modVersion[0] + ")" : ""),"mod-name",info);
+		web_EditPage.btn("Add","btn btn-mod-add",row,(function(modVersion,modTitle,modName) {
+			return function() {
+				web_EditPage.doAddSearchedMod(modName[0],modTitle[0],modVersion[0]);
+			};
+		})(modVersion,modTitle,modName));
+	}
+};
+web_EditPage.doAddSearchedMod = function(modName,modTitle,modVersion) {
+	web_Api.addMod(web_EditPage.serverId,modName,modTitle,modVersion,function(_) {
+		web_EditPage.toast("Added mod: " + modTitle,false);
+		web_EditPage.clear(web_EditPage.modSearchResults);
+		web_EditPage.cachedSearchResults = [];
+		web_EditPage.loadServerConfig();
+	},function(err) {
+		web_EditPage.toast("Failed to add mod: " + err,true);
 	});
 };
 web_EditPage.doRemoveMod = function(modName) {
@@ -1767,6 +1793,7 @@ var Enum = { };
 js_Boot.__toStr = ({ }).toString;
 web_EditPage.serverId = "";
 web_EditPage.selectedVersion = "";
+web_EditPage.cachedSearchResults = [];
 web_ServersPage.currentLogServer = "";
 web_ServersPage.transitionStates = new haxe_ds_StringMap();
 web_ServersPage.__serverSnapshot = [];

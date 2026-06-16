@@ -192,9 +192,26 @@ class HttpServer {
                     // Parse request line
                     var requestParts = headerLines[0].split(" ");
                     // Strip query string from path (e.g., "/api/servers?id=1" -> "/api/servers")
-                    var path = requestParts[1];
-                    var qIdx = path.indexOf("?");
-                    if (qIdx >= 0) path = path.substring(0, qIdx);
+                    var fullPath = requestParts[1];
+                    var path = fullPath;
+                    var params:Map<String, String> = new Map();
+                    var qIdx = fullPath.indexOf("?");
+                    if (qIdx >= 0) {
+                        path = fullPath.substring(0, qIdx);
+                        // Parse query string into params so handlers can read them
+                        var queryStr = fullPath.substring(qIdx + 1);
+                        var pairs = queryStr.split("&");
+                        for (pair in pairs) {
+                            var eqIdx = pair.indexOf("=");
+                            if (eqIdx >= 0) {
+                                var k = StringTools.urlDecode(pair.substring(0, eqIdx));
+                                var v = StringTools.urlDecode(pair.substring(eqIdx + 1));
+                                params.set(k, v);
+                            } else {
+                                params.set(StringTools.urlDecode(pair), "");
+                            }
+                        }
+                    }
                     var headers:Map<String, String> = new Map();
                     for (i in 1...headerLines.length) {
                         var line = headerLines[i];
@@ -218,7 +235,7 @@ class HttpServer {
                         path: path,
                         headers: headers,
                         body: body,
-                        params: new Map()
+                        params: params
                     };
                 } else {
                     headerLines.push(chunk);
@@ -370,4 +387,5 @@ class HttpServer {
         var content = sys.io.File.getContent(filePath);
         return text(contentType, content);
     }
+
 }
