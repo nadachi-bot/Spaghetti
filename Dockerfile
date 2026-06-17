@@ -13,7 +13,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     -o /tmp/haxe.tar.gz && \
     tar xzf /tmp/haxe.tar.gz -C /opt/ && \
     rm /tmp/haxe.tar.gz && \
-    ln -s /opt/haxe/haxe /usr/local/bin/haxe
+    ln -s /opt/haxe-4.3.6/haxe /usr/local/bin/haxe
 
 # Copy build configuration and source
 COPY compile_server.hxml compile_web.hxml ./
