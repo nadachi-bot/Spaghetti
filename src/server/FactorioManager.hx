@@ -335,7 +335,9 @@ class FactorioManager {
         var installed = sys.FileSystem.readDirectory(modsDir);
         for (modFile in installed) {
             if (!StringTools.endsWith(modFile, ".zip")) continue;
-            var modName = modFile.substring(0, modFile.length - 4);
+            var withoutZip = modFile.substring(0, modFile.length - 4);
+            var lastUnderscore = withoutZip.lastIndexOf("_");
+            var modName = lastUnderscore > 0 ? withoutZip.substring(0, lastUnderscore) : withoutZip;
             var isFound = false;
             for (name in enabledNames) {
                 if (name == modName) {

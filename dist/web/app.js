@@ -1110,6 +1110,10 @@ web_Main.main = function() {
 };
 var web_ServersPage = function() { };
 web_ServersPage.__name__ = true;
+web_ServersPage.isAtBottom = function(el) {
+	var pre = js_Boot.__cast(el , HTMLPreElement);
+	return pre.scrollHeight - pre.scrollTop - pre.clientHeight < 150;
+};
 web_ServersPage.render = function() {
 	web_ServersPage.container = window.document.getElementById("app");
 	web_ServersPage.clear(web_ServersPage.container);
@@ -1492,6 +1496,7 @@ web_ServersPage.refreshLogs = function() {
 		if(logArea == null) {
 			return;
 		}
+		var wasAtBottom = web_ServersPage.isAtBottom(logArea);
 		var lines = data;
 		var txt = "";
 		if(lines != null) {
@@ -1503,7 +1508,9 @@ web_ServersPage.refreshLogs = function() {
 			}
 		}
 		logArea.textContent = txt;
-		logArea.scrollTop = logArea.scrollHeight;
+		if(wasAtBottom) {
+			logArea.scrollTop = logArea.scrollHeight;
+		}
 	},function(_) {
 	});
 };
@@ -1555,6 +1562,7 @@ web_ServersPage.refreshConsoleLog = function() {
 		if(output == null) {
 			return;
 		}
+		var wasAtBottom = web_ServersPage.isAtBottom(output);
 		var lines = data;
 		var txt = "";
 		if(lines != null) {
@@ -1566,7 +1574,9 @@ web_ServersPage.refreshConsoleLog = function() {
 			}
 		}
 		output.textContent = txt;
-		output.scrollTop = output.scrollHeight;
+		if(wasAtBottom) {
+			output.scrollTop = output.scrollHeight;
+		}
 	},function(_) {
 	});
 };

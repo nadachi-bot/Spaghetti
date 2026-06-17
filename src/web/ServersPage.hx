@@ -16,6 +16,15 @@ class ServersPage {
         [];
     static var __serverSnapshot:Array<Dynamic> = [];
 
+    /**
+     * Check if a scrollable element is near the bottom.
+     * Returns true when the user is scrolled within 150px of the bottom.
+     */
+    static function isAtBottom(el:js.html.Element):Bool {
+        var pre = cast(el, js.html.PreElement);
+        return (pre.scrollHeight - pre.scrollTop - pre.clientHeight) < 150;
+    }
+
     /* -------- Main entry -------- */
     static public function render():Void {
         container = cast document.getElementById("app");
@@ -348,13 +357,16 @@ class ServersPage {
             data -> {
                 var logArea = cast(query(logModal, "pre.log-area"), js.html.PreElement);
                 if (logArea == null) return;
+                var wasAtBottom = isAtBottom(logArea);
                 var lines:Array<Dynamic> = cast data;
                 var txt = "";
                 if (lines != null) {
                     for (l in lines) txt += l + "\n";
                 }
                 logArea.textContent = txt;
-                logArea.scrollTop = logArea.scrollHeight;
+                if (wasAtBottom) {
+                    logArea.scrollTop = logArea.scrollHeight;
+                }
             },
             _ -> {}
         );
@@ -414,13 +426,16 @@ class ServersPage {
             data -> {
                 var output = cast(query(consoleModal, "pre.console-output"), js.html.PreElement);
                 if (output == null) return;
+                var wasAtBottom = isAtBottom(output);
                 var lines:Array<Dynamic> = cast data;
                 var txt = "";
                 if (lines != null) {
                     for (l in lines) txt += l + "\n";
                 }
                 output.textContent = txt;
-                output.scrollTop = output.scrollHeight;
+                if (wasAtBottom) {
+                    output.scrollTop = output.scrollHeight;
+                }
             },
             _ -> {}
         );
