@@ -7,6 +7,7 @@ tests/web/node_modules
 *.log
 dist/*.hl
 dist/*.py
+dist/web/
 *.pyc
 __pycache__/*
 *.pid
