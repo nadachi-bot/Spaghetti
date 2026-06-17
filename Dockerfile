@@ -5,15 +5,10 @@ FROM debian:bookworm-slim AS builder
 
 WORKDIR /build
 
-# Install Haxe 4.3+ from official binary
+# Install Haxe via apt (bookworm ships 4.2.5)
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    curl tar ca-certificates \
-    && rm -rf /var/lib/apt/lists/* && \
-    curl -fsSL https://github.com/HaxeFoundation/haxe/releases/download/4.3.6/haxe-4.3.6-linux64.tar.gz \
-    -o /tmp/haxe.tar.gz && \
-    tar xzf /tmp/haxe.tar.gz -C /opt/ && \
-    rm /tmp/haxe.tar.gz && \
-    ln -s /opt/haxe-4.3.6/haxe /usr/local/bin/haxe
+    haxe \
+    && rm -rf /var/lib/apt/lists/*
 
 # Copy build configuration and source
 COPY compile_server.hxml compile_web.hxml ./
