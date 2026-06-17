@@ -56,8 +56,6 @@ EXPOSE 8080
 
 # Default environment variables
 ENV FACTORIO_PORT=8080
-ENV FACTORIO_USERNAME=""
-ENV FACTORIO_TOKEN=""
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
