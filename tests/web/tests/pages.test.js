@@ -26,7 +26,7 @@ export default async function runTests(browser, runner) {
       const h1 = document.querySelector('h1.page-title');
       return h1 ? h1.textContent : '';
     });
-    await runner.runContains('Servers page has correct title', title, 'Factorio Server Manager');
+    await runner.runContains('Servers page has correct title', title, 'Spaghetti');
 
     // Navigation bar should have Servers and Settings links
     const navLinks = await page.evaluate(() => {

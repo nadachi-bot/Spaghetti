@@ -9,7 +9,7 @@ class Main {
     static var server:HttpServer;
 
     static function main():Void {
-        haxe.Log.trace("Starting Factorio Server Manager...");
+        haxe.Log.trace("Starting Spaghetti...");
 
         // Load configuration
         config = Config.load();
@@ -104,7 +104,7 @@ class Main {
             }
             return resp;
         }
-        return server.text("text/html", "<html><body><h1>Factorio Server Manager</h1><p>Loading...</p></body></html>");
+        return server.text("text/html", "<html><body><h1>Spaghetti</h1><p>Loading...</p></body></html>");
     }
 
     static function serveStatic(file:String, contentType:String):HttpServer.Response {

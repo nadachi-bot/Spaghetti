@@ -1,5 +1,5 @@
 #!/bin/bash
-# Factorio Server Manager - start/stop/status script
+# Spaghetti - start/stop/status script
 
 PID_FILE=".server.pid"
 PY_FILE="dist/server.py"

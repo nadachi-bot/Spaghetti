@@ -108,7 +108,7 @@ class ServersPage {
     static function buildHeader():Void {
         var h = div("page-header", container);
         var title = el("h1", "page-title", h);
-        title.textContent = "Factorio Server Manager";
+        title.textContent = "Spaghetti";
 
         var nav = div("nav-bar", h);
         btn("Servers", "nav-link", nav, _ -> window.location.href = "/");
