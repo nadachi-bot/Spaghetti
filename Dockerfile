@@ -1,9 +1,19 @@
 ####################################
 # Stage 1: Build Haxe project
 ####################################
-FROM ghcr.io/haxe/haxe:4.3 AS builder
+FROM debian:bookworm-slim AS builder
 
 WORKDIR /build
+
+# Install Haxe 4.3+ from official binary
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    curl tar ca-certificates \
+    && rm -rf /var/lib/apt/lists/* && \
+    curl -fsSL https://github.com/HaxeFoundation/haxe/releases/download/4.3.6/haxe-4.3.6-linux64.tar.gz \
+    -o /tmp/haxe.tar.gz && \
+    tar xzf /tmp/haxe.tar.gz -C /opt/ && \
+    rm /tmp/haxe.tar.gz && \
+    ln -s /opt/haxe/haxe /usr/local/bin/haxe
 
 # Copy build configuration and source
 COPY compile_server.hxml compile_web.hxml ./
