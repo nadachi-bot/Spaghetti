@@ -21,6 +21,7 @@ COPY src/ src/
 
 # Create dist directory and compile
 RUN mkdir -p dist/web && \
+    cp src/web/index.html src/web/settings.html src/web/edit.html src/web/style.css dist/web/ && \
     haxe compile_web.hxml && \
     haxe compile_server.hxml
 
