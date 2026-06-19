@@ -113,16 +113,8 @@ class FactorioManager {
     }
 
     function getFileSize(path:String):Int {
-        try {
-            var proc = new sys.io.Process("stat", ["-c%s", path]);
-            var result = proc.stdout.readLine();
-            try { proc.exitCode(); } catch (e:Dynamic) {}
-            proc.close();
-            var size = Std.parseInt(result);
-            return size != null ? size : 0;
-        } catch (e:Dynamic) {
-            return 0;
-        }
+        if (!sys.FileSystem.exists(path)) return 0;
+        return sys.FileSystem.stat(path).size;
     }
 
 
@@ -168,8 +160,17 @@ class FactorioManager {
             // Extract .tar.xz
             var args = ["-xJf", tempFile, "-C", targetDir];
             var proc = new sys.io.Process("tar", args);
-            try { proc.exitCode(); } catch (e:Dynamic) {}
+            var tarExit = proc.exitCode();
             proc.close();
+            if (tarExit != 0) {
+                throw "tar extraction failed with exit code " + tarExit;
+            }
+
+            // Verify the binary actually exists
+            var expectedBinary = targetDir + "/factorio/bin/x64/factorio";
+            if (!sys.FileSystem.exists(expectedBinary)) {
+                throw "Expected binary not found after extraction: " + expectedBinary;
+            }
 
             // Make binaries executable
             makeExecutableRecursive(targetDir);
@@ -433,19 +434,25 @@ class FactorioManager {
 
     /**
      * Download a file from a URL.
-     * curl -o writes directly to the file, so there is no stdout to read.
+     * -f: silent on error, fail on HTTP errors >= 400
+     * -L: follow redirects
+     * -o: write to output file
+     * Throws on non-zero exit code so the caller can handle the failure.
      */
     function downloadFile(url:String, outputPath:String):Void {
-        var proc = new sys.io.Process("curl", ["-sS", "-L", "-o", outputPath, url]);
-        try { proc.exitCode(); } catch (e:Dynamic) {}
+        var proc = new sys.io.Process("curl", ["-sS", "-f", "-L", "-o", outputPath, url]);
+        var exitCode = proc.exitCode();
         proc.close();
+        if (exitCode != 0) {
+            throw "curl exited with code " + exitCode + " downloading " + url;
+        }
     }
 
     /**
      * Download a file with custom headers (for mod portal auth).
      */
     function downloadFileWithCookies(url:String, outputPath:String, headers:Array<String>):Void {
-        var args = ["-sS", "-L", "-o", outputPath];
+        var args = ["-sS", "-f", "-L", "-o", outputPath];
         for (header in headers) {
             args.push("-H");
             args.push(header);
@@ -453,8 +460,11 @@ class FactorioManager {
         args.push(url);
 
         var proc = new sys.io.Process("curl", args);
-        try { proc.exitCode(); } catch (e:Dynamic) {}
+        var exitCode = proc.exitCode();
         proc.close();
+        if (exitCode != 0) {
+            throw "curl exited with code " + exitCode + " downloading " + url;
+        }
     }
 
     /**
