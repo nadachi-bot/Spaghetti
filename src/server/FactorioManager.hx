@@ -145,8 +145,9 @@ class FactorioManager {
         if (!sys.FileSystem.exists(targetDir)) {
             sys.FileSystem.createDirectory(targetDir);
         }
+        var versionURL = version == "latest" ? "stable" : version;
 
-        var url = "https://factorio.com/get-download/" + version + "/headless/linux64/latest";
+        var url = "https://factorio.com/get-download/" + versionURL + "/headless/linux64/latest";
 
         try {
             var tempFile = "/tmp/factorio-" + version + ".tar.xz";
