@@ -147,7 +147,7 @@ class FactorioManager {
         }
         var versionURL = version == "latest" ? "stable" : version;
 
-        var url = "https://factorio.com/get-download/" + versionURL + "/headless/linux64/latest";
+        var url = "https://factorio.com/get-download/" + versionURL + "/headless/linux64";
 
         try {
             var tempFile = "/tmp/factorio-" + version + ".tar.xz";
